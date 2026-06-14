@@ -1,0 +1,195 @@
+# Changelog Context
+
+Last updated: 2026-06-12.
+
+## Major Recent Changes
+
+- Migrated from Supabase free constraints to DigitalOcean PostgreSQL.
+- Configured Vercel production deployment at `https://control-total-phi.vercel.app`.
+- Upgraded Vercel plan to Pro and enabled frequent cron schedule.
+- Changed `/api/cron/meli-hourly` to run hourly through `vercel.json`, because normal production sync should process closed-hour sales instead of waking every 15 minutes.
+- Implemented multi-page backfill internally because Meli commonly limits order search pages to 50.
+- Enforced the hourly sync batch limit. `backfillLimit: 150` now means at most 150 orders per connected account per run, with offset/progress saved for the next run.
+- Added progress display on `/meli`: last run, checked, saved, pending, total period progress.
+- Added `/ventas` pagination at 100 rows per page to avoid rendering thousands of orders in one request.
+- Aligned Dashboard, Alertas, and Utilidad around current-month loss counts. Alertas still keeps a general historical problem queue, now labeled that way.
+- Aligned report month grouping to `America/Mexico_City` instead of UTC.
+- Removed most manual sync buttons from UI; kept single-sale repair.
+- Added production sync observability:
+  - `SyncRun` Prisma model.
+  - `src/lib/server/sync-runs.ts`.
+  - Meli hourly cron writes run status, duration, counts, pending, and errors.
+  - Full billing monthly cron writes run status.
+  - `/meli` shows recent sync run history.
+- Mirrored operational JSON data into relational tables:
+  - products
+  - online SKUs
+  - marketplace accounts
+  - sale orders
+  - sale items
+  - sale components
+  - sale charges
+  - inventory balances
+- Added `scripts/mirror-operational-tables.ts` for bulk mirroring from `LocalDataStore` to relational tables.
+- Added `SaleOrder.payload` to store the full operational sale payload in PostgreSQL.
+- Backfilled 4,382 existing sales with `SaleOrder.payload`.
+- Updated report builders to prefer Prisma data for products, warehouses, online SKUs, components, marketplace accounts, inventory balances, inventory movements, and sale payloads.
+- This moves `/ventas`, `/ventas/[orderId]`, `/inventario`, `/inventario/[masterSku]`, `/utilidad`, `/reportes`, `/resurtido`, and alert/report consumers closer to PostgreSQL source-of-truth behavior, with `LocalDataStore` fallback only for compatibility.
+- Ran initial mirror against production DB:
+  - 161 products.
+  - 186 online SKUs.
+  - 1 marketplace account.
+  - 1,563 orders.
+  - 257 inventory balances.
+- Updated admin backup to include recent sync runs and redact sensitive payload values.
+- Fixed sales report reconstruction from relational `SaleOrder` rows so Meli split-package sales keep `packId`, `shippingId`, `raw` payment/order-request data, billing state, warehouse/logistic type, and Full allocation metadata from `SaleOrder.payload`.
+- Added regression coverage for split-package Meli sales so one sale-level shipping charge is not double-counted when Meli divides a purchase into multiple internal orders/packages.
+- Changed sales list/detail display logic to show the real Mercado Libre sale number from `order_request.id` or `packId` instead of the internal package/order id returned by the API. Search and `/ventas/[orderId]` now accept the real Meli sale number too, while repair actions still use the internal API order id.
+- Sale detail now shows split-package sales in two levels: a consolidated item summary for operation/costing, plus a full internal package/API-order breakdown for audit.
+- Meli sync now propagates pack/family-pack parent ids into `order_request.id` before normalization, including `family_pack_id` found in shipment metadata or larger pack responses. This lets one large Full purchase with many internal pack/order ids group as one real sale instead of only pairing nearby packages.
+- Sale detail routes now accept child pack/shipping/payment aliases too, so URLs created before grouping by the real Meli sale number do not 404 after a repair/recalculation.
+- Manual single-sale repair now refreshes the Mercado Libre account token before fetching the order, matching the safer cron path and avoiding partial repairs when Meli returns 403 for a token near expiration.
+- Added `/salud` security and cost readiness: it now checks production env basics such as token encryption, cron/webhook secrets, platform admin config, HTTPS `APP_URL`, and shows estimated DB cost per recent sale plus 12-month payload storage projection.
+- Added `/salud` operational readiness for inventory baselines, fresh Full stock sync, and latest Full billing month/amount so old-sales stock risk and missing Full charges are visible instead of implicit.
+- Compact Meli raw order payloads before writing `SaleOrder.payload` and `LocalDataStore` to slow down PostgreSQL storage growth without removing the operational fields the app needs.
+- Added a bounded Meli split-package fallback: when pack/shipment endpoints only expose part of a Seller Center grouped sale, sync now searches `orders/search` by pack/family/order-request ids and groups returned sibling API orders under the real sale id.
+- Added tests for Meli family/order-request identifier extraction and exact identifier matching.
+- Added product thumbnails to inventory, sales list, and sale detail. Mercado Libre item image URLs are stored as lightweight `imageUrl` references when available; UI falls back to SKU/product initials if an image is missing or fails to load.
+- Fixed thumbnail data flow: Mercado Libre item fetches now request `thumbnail`, `secure_thumbnail`, and `pictures`; Full/listing audit sync saves listing image URLs onto online SKU mappings, report reads preserve those URLs when rebuilding from relational tables, and SKU mapping edits keep existing images instead of dropping them.
+- Corrected local and Vercel production database priority so `DATABASE_URL` points to the DigitalOcean production database instead of falling through to the incomplete Neon `POSTGRES_*` variables. Redeployed production after the env change.
+- Inventory now renders product thumbnails not only in the main inventory table/mobile list, but also in the SKU connection manager and SKU detail page when `imageUrl` exists.
+- Added a `/meli` action to run a Full/listing audit for refreshing Meli listing image URLs, and made sales reports fall back to online-SKU/master-SKU image maps so older orders can show photos after audit data exists.
+- Improved production performance for larger sellers:
+  - Prisma database pool is no longer hardcoded to `connection_limit=1`; production defaults to a configurable pool of 5 with longer pool timeout.
+  - AppShell and dashboard links now disable Next prefetch for heavy operational routes so opening Inicio no preloads Ventas, Utilidad, Inventario, Resurtido, Alertas, or Setup.
+  - Dashboard now uses a compact PostgreSQL aggregate path for KPIs, inventory value, pending counts, and today's top products instead of building the full sales/profit report on page load.
+  - Admin now includes estimated per-client usage/cost so a pilot customer can be monitored separately.
+  - `/salud` cost readiness uses SQL aggregates for recent order counts instead of loading the full store.
+  - Production verification after deploy showed `/dashboard` rendering KPIs in about 2.4s, with logs showing only `GET /dashboard` instead of route-prefetch bursts.
+- Improved `/inventario`, `/ventas`, and `/utilidad` perceived load:
+  - Disabled Next prefetch on heavy list/detail links in inventory, SKU connection manager, sales, and profit pages.
+  - Inventory actions now read only warehouses for the new-SKU modal instead of rebuilding the full inventory report twice.
+  - Sales list uses a configurable operational order cap (`SALES_PAGE_MAX_ORDERS`, default 1,500) through the report loader.
+  - Profit reports can read sale orders by date range from PostgreSQL; `/utilidad` loads the selected period first and renders full monthly history from snapshots.
+  - Profit SKU rows use a lightweight Full-billing-only product monthly summary instead of rebuilding complete product monthly profitability twice.
+  - Production verification after deploy showed approximate visible load: `/ventas` 1.6s, `/inventario` 2.6s, `/utilidad` 1.9s. Full monthly history still takes about 4.8s when explicitly loaded.
+- Added first-client onboarding guardrails:
+  - Centralized Meli sync limits in `src/lib/server/sync-config.ts`.
+  - Meli OAuth initial sync is now capped by env (`MELI_INITIAL_BACKFILL_LIMIT`, default 500) instead of hardcoded 5,000 orders.
+  - Hourly cron uses env-controlled order, billing, Full stock, and runtime limits.
+  - Admin historical sync defaults to a safer 500-order batch and respects env maxes.
+  - `/salud` now includes a "Primer cliente piloto" section with security, sync limit, cost tracking, and backup confirmation checks.
+  - Added `docs/first-client-onboarding.md` with the safe pilot process.
+- Added a high-volume client readiness gate:
+  - New `src/lib/server/scale-readiness.ts` estimates 30k ventas/mes using real stored sale row sizes.
+  - `/salud#escala-30k` shows hourly sync headroom, catch-up days for historical backfill, 12-month DB storage projection, and checklist status.
+  - `.env.example` now documents `SCALE_TARGET_MONTHLY_ORDERS`.
+  - Added `docs/first-client-scale-plan.md` for pilot onboarding, cost risk, and monitoring.
+  - Added `docs/backup-restore-checklist.md` to make the remaining DigitalOcean backup/restore blocker explicit.
+- Added retention policy and weekly compaction job:
+  - `SALES_DETAIL_RETENTION_MONTHS=24`.
+  - `MELI_RAW_PAYLOAD_RETENTION_MONTHS=6`.
+  - `REPORT_SUMMARY_RETENTION_YEARS=10`.
+  - New `/api/cron/data-retention` compacts old `SaleOrder.payload.raw` and `LocalDataStore.marketplaceOrders[].raw` without deleting sales, charges, items, grouping ids, or stock application data.
+  - Added `/salud#retencion` so the policy is visible in-product.
+- Added real monthly summary/snapshot storage for the 10-year retention promise:
+  - New Prisma models `SalesMonthlySummary` and `ProductMonthlySummary`.
+  - New `src/lib/server/monthly-snapshots.ts` rebuilds month/account/channel totals and month/account/channel/SKU totals from relational sales tables.
+  - New protected cron `/api/cron/monthly-snapshots`, scheduled weekly after data retention.
+  - New manual command `npm run snapshots:monthly`.
+  - `/salud#retencion` now shows snapshot coverage, last calculation, account/channel row count, and SKU row count.
+  - Production schema was pushed and snapshots were rebuilt once: 6 sales summaries and 256 product/SKU summaries.
+- Wired `/utilidad` monthly history to snapshots:
+  - Added `additionalCostsAmount` to `SalesMonthlySummary` and `saleFullCostsAmount` to `ProductMonthlySummary`.
+  - Rebuilt production snapshots after the schema change.
+  - The monthly history panel now loads automatically from snapshots instead of requiring "Cargar historial" and rebuilding all raw orders.
+  - Production browser verification confirmed `/utilidad#historial-mensual` shows monthly rows without the load-history button and with no console errors.
+- Applied the first UX pass inspired by the shared iOS/glass design:
+  - Updated global colors, card surfaces, table surfaces, buttons, and shadows in `src/app/globals.css`.
+  - Updated `AppShell` with a darker premium sidebar and cleaner translucent header.
+  - Updated the public home page with a darker premium header/hero treatment while keeping the operational product mockup and real SaaS claims.
+  - Production browser verification passed for home, dashboard desktop, and dashboard mobile with no console errors or horizontal mobile overflow.
+- Applied a stronger second UX pass after visual feedback:
+  - Added `ct-dark-app` theme so internal app pages use dark radial backgrounds, translucent glass cards/tables/forms, and light text overrides.
+  - Added `ct-marketing-dark` theme so the landing page stays dark/glass beyond the hero.
+  - Verified production home and dashboard show dark/glass backgrounds and translucent cards; mobile dashboard has no horizontal overflow and no console errors.
+- Cleaned the dashboard home screen:
+  - Removed the large "Resumen del negocio" welcome block from `/dashboard`.
+  - Removed the large "Ventas incompletas" and starter/onboarding blocks from `/dashboard`; those actions live in `/setup`/Pendientes.
+  - Production browser verification confirmed `/dashboard` no longer shows those large blocks, `/setup#pendientes` still shows SKU pending actions, and mobile dashboard has no horizontal overflow.
+- Applied a closer premium dashboard redesign based on the shared dark product mockup:
+  - Added compact dashboard chrome in `AppShell` so `/dashboard` keeps search, Acciones, account pill, mobile nav, sidebar modules, and Ayuda while removing the bulky page-title header.
+  - Restyled the app sidebar to feel closer to the reference while preserving all existing menu entries.
+  - Rebuilt `/dashboard` around large KPI cards, a central pending-actions table, a compact business-risk panel, top products, and inventory health.
+  - Kept dashboard data real: no fake mock values were introduced.
+  - Deployed to production and verified `https://control-total-phi.vercel.app/dashboard` on desktop and mobile with no console errors or horizontal overflow.
+- Applied a stronger app-wide iOS/liquid-glass pass after design feedback:
+  - Added dedicated glass shell classes for sidebar, topbar, search, account pill, mobile nav, and assistant surfaces.
+  - Expanded the dark app theme so existing white/zinc/slate cards, tables, forms, buttons, badges, and panels inherit the premium dark/glass treatment without removing existing actions.
+  - Restyled the help assistant trigger and panel to match the app chrome.
+  - Fixed `/inventario` pending cards and the "Conteo por SKU" panel so they stay readable in the dark theme.
+  - Standard pages now get a taller header while `/dashboard` keeps the compact chrome.
+  - Deployed to production and verified `/dashboard`, `/inventario`, `/ventas`, and `/utilidad` on desktop plus mobile dashboard/inventory with no horizontal overflow.
+- Tightened the dashboard toward the shared Stitch/iOS 26 reference:
+  - Reworked the app background into a subtler dotted dark canvas with cleaner liquid-glass surfaces and gradient brand text.
+  - Added dark glass login/register shells so auth pages match the premium internal UI.
+  - Changed `/dashboard` pending focus so SKU mapping problems render as a dedicated "Detalle de SKUs sin mapear" table with marketplace, impact, and map action; if only the count is available, it now falls back to a summary row instead of the generic pending table.
+  - Preserved global search, Acciones, account pill, sidebar modules, mobile nav, and Ayuda.
+  - Deployed to production and verified `/dashboard` desktop/mobile with no horizontal overflow.
+- Replaced the first patched UX approach with a structural redesign pass:
+  - Reworked `AppShell` so standard pages use a slimmer floating utility bar, a separate page heading, and a contained left sidebar card instead of a heavy top title card.
+  - Rebuilt `/guia` from scratch as an operational cockpit: hero progress, next action, four-step flow, start paths, compact status tiles, step rows, routines, formulas, conteo guidance, and account metrics.
+  - Kept search, Acciones, account pill, sidebar navigation, mobile nav, and Ayuda.
+  - Deployed to production and verified `/guia` desktop/mobile plus `/dashboard` desktop with no horizontal overflow.
+- Extended the structural UX redesign to the main operational pages:
+  - Added shared `ct-ops-*` primitives for operational pages: KPI tiles, hero panels, panel headers, filter bars, mobile cards, compact metrics, status pills, and safe width constraints.
+  - Updated `/inventario` pending cards, Conteo por SKU, Full layers, movements, and surrounding panels to the same dark glass operational style without removing stock/Full/SKU actions.
+  - Updated `/ventas` KPI tiles, filter area, mobile cards, and imported-sales table to the same visual system while preserving search, filters, pagination, photos, and detail links.
+  - Updated `/utilidad` period selector, financial summary, SKU comparison, loss sales, SKU profitability, history, expenses, and billing-pending sections to the operational style.
+  - Fixed wide operational content so tables scroll inside their panels instead of pushing the page width, and removed duplicated visible `Abrir` affordances on collapsible panels.
+  - Deployed to production and verified `/inventario`, `/ventas`, and `/utilidad` desktop/mobile with search, Acciones, account pill, and Ayuda still present and no mobile horizontal overflow.
+- Extended the premium operational UX to pilot-critical secondary pages:
+  - Updated `/setup` so Pendientes now uses the same dark glass hero, actionable KPI tiles, priority alert, billing queue panel, quick actions, and compact operational summary.
+  - Updated `/meli` sync status, sync run log, KPI strip, connected accounts, Full billing, and SKU pending shell to use the operational glass primitives.
+  - Updated `/ventas/[orderId]` detail with dark glass alerts, grouped Meli internal-order context, sale KPIs, item/package/charge/FIFO panels, and calculation status metrics.
+  - Updated `/inventario/[masterSku]` detail with a product hero, operational KPIs, count reset banner, stock/online SKU panels, recent sales, movements, and Full layer tables in the same style.
+  - Restyled shared product thumbnails so inventory and sales photos fit the premium dark UI instead of looking like plain white placeholders.
+  - Deployed to production. Lint, tests, and build pass; protected production routes return redirects instead of 404 when unauthenticated.
+- Applied a final premium shell pass to get closer to the Stitch/iOS 26 direction:
+  - Expanded `AppShell` spacing so the sidebar is a wider floating rail and the topbar is a taller glass command bar.
+  - Reworked the global dark canvas, page headings, search, account pill, action menu, mobile nav, panels, cards, KPI tiles, forms, tables, chips, thumbnails, and assistant trigger into one consistent glass system.
+  - Preserved search, Acciones, account pill, Ayuda, navigation, filters, and operational business controls.
+  - Deployed to production and verified `/dashboard`, `/guia`, `/inventario`, `/ventas`, and `/utilidad` at desktop/mobile widths with no console errors, no horizontal overflow, and an unclipped Acciones dropdown.
+- Applied a Stitch ZIP-informed final visual refinement:
+  - Reviewed the uploaded Stitch exports and kept the useful parts: stronger hierarchy, glass panels, compact operational cards, clearer pending/action surfaces, and premium sidebar/topbar treatment.
+  - Rejected the weak parts: washed-out inventory/sales screens, fake data/layout-only assumptions, and dominant cyan/purple/strong-blue accents.
+  - Added a final global CSS skin in `src/app/globals.css` using neutral graphite glass, white/ice text, soft mint accents, amber/red status tones, darker tables, and more legible forms/buttons.
+  - Preserved existing search, Acciones, account pill, Ayuda, navigation, filters, tables, photos, and business actions.
+  - Deployed to production and verified `/dashboard`, `/inventario`, `/ventas`, and `/utilidad` on desktop plus mobile overflow checks. Lint, tests, and build pass.
+
+## Problems Encountered
+
+- Vercel Hobby rejected frequent cron schedules. Fixed by upgrading to Pro.
+- Temporary Windows Scheduled Task was used for 15-minute cron before Pro. It was removed after Vercel Pro cron was deployed.
+- A first relational mirror implementation attempted to write too much in one Prisma transaction and timed out.
+- The mirror script was rewritten to use `createMany` in batches.
+- A parallel build and mirror run caused a local Prisma DLL lock on Windows. Fixed by stopping stale Node processes and running tasks sequentially.
+- Vitest sometimes reports a Windows worker shutdown warning after all tests pass. It has not failed the suite.
+
+## Fixes That Worked
+
+- Pro Vercel cron with hourly closed-window sync.
+- Meli basic import advances through closed-window pages in bounded batches, while expensive billing/payment/shipment enrichment remains a separate pending-money pass.
+- `SyncRun` durable sync history.
+- Batch mirror script for initial relational population.
+- PostgreSQL sale payload reads for sales list/detail.
+- Relational report store for main read/report pages.
+- Single-sale repair remains the safe manual correction action.
+
+## Rollback Warnings
+
+- Do not remove `LocalDataStore` yet. Several pages still read from it.
+- Do not delete operational JSON payloads until every critical page reads from relational tables.
+- Do not enable RLS without policies.
+- Do not expose marketplace tokens in backup, logs, screenshots, or support exports.
+- Do not add TikTok/Amazon by duplicating Meli-specific logic; create a marketplace adapter first.

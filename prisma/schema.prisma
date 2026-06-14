@@ -1,0 +1,638 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Channel {
+  mercado_libre
+  amazon
+  tiktok
+  manual
+}
+
+enum OrganizationStatus {
+  active
+  suspended
+  cancelled
+}
+
+enum UserStatus {
+  active
+  invited
+  suspended
+}
+
+enum WarehouseType {
+  own
+  mercado_libre_full
+  amazon_fba
+  tiktok_fulfillment
+  third_party
+  returns
+  damaged
+  transit
+}
+
+enum InventoryMovementType {
+  purchase
+  sale
+  return
+  adjustment
+  transfer_in
+  transfer_out
+  reserve
+  release_reserve
+  damage
+}
+
+enum SubscriptionStatus {
+  trial
+  active
+  grace
+  suspended
+  cancelled
+}
+
+enum LockMode {
+  none
+  read_only
+  full_lock
+}
+
+enum SaleChargeType {
+  marketplace_commission
+  shipping
+  fulfillment
+  advertising
+  promotion
+  financing
+  packaging
+  storage
+  return_cost
+  other
+}
+
+model Organization {
+  id                      String                  @id @default(cuid())
+  name                    String
+  status                  OrganizationStatus      @default(active)
+  createdAt               DateTime                @default(now())
+  updatedAt               DateTime                @updatedAt
+  users                   OrganizationUser[]
+  roles                   Role[]
+  masterProducts          MasterProduct[]
+  onlineSkus              OnlineSku[]
+  warehouses              Warehouse[]
+  inventoryBalances       InventoryBalance[]
+  inventoryMovements      InventoryMovement[]
+  suppliers               Supplier[]
+  purchaseOrders          PurchaseOrder[]
+  saleOrders              SaleOrder[]
+  marketplaceAccounts     MarketplaceAccount[]
+  subscriptions           Subscription[]
+  subscriptionPayments    SubscriptionPayment[]
+  auditLogs               AuditLog[]
+  localDataStore          LocalDataStore?
+  operatingExpenses       OperatingExpense[]
+  fullInventoryLayers     FullInventoryLayer[]
+  stockSyncQueues         StockSyncQueue[]
+  syncRuns                SyncRun[]
+  salesMonthlySummaries   SalesMonthlySummary[]
+  productMonthlySummaries ProductMonthlySummary[]
+
+  @@index([status])
+}
+
+model LocalDataStore {
+  organizationId String       @id
+  payload        Json
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id            String             @id @default(cuid())
+  name          String
+  email         String             @unique
+  passwordHash  String
+  passwordSalt  String             @default("")
+  status        UserStatus         @default(active)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  organizations OrganizationUser[]
+  auditLogs     AuditLog[]
+  sessions      AuthSession[]
+}
+
+model AuthSession {
+  id        String   @id
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model OrganizationUser {
+  id             String       @id @default(cuid())
+  organizationId String
+  userId         String
+  roleId         String
+  status         UserStatus   @default(active)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           Role         @relation(fields: [roleId], references: [id])
+  createdAt      DateTime     @default(now())
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+}
+
+model Role {
+  id             String             @id @default(cuid())
+  organizationId String?
+  name           String
+  isSystemRole   Boolean            @default(false)
+  organization   Organization?      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  users          OrganizationUser[]
+  permissions    RolePermission[]
+
+  @@unique([organizationId, name])
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  code        String           @unique
+  description String
+  roles       RolePermission[]
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model MasterProduct {
+  id                  String                  @id @default(cuid())
+  organizationId      String
+  masterSku           String
+  name                String
+  description         String?
+  category            String?
+  brand               String?
+  imageUrl            String?
+  unitWeight          Decimal?                @db.Decimal(12, 4)
+  unitDimensions      String?
+  masterBoxUnits      Int?
+  masterBoxWeight     Decimal?                @db.Decimal(12, 4)
+  masterBoxDimensions String?
+  targetInventoryDays Int                     @default(90)
+  isActive            Boolean                 @default(true)
+  organization        Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  components          SkuComponent[]
+  inventoryBalances   InventoryBalance[]
+  inventoryMovements  InventoryMovement[]
+  purchaseItems       PurchaseItem[]
+  saleComponents      SaleItemComponent[]
+  costSnapshots       ProductCostSnapshot[]
+  monthlySummaries    ProductMonthlySummary[]
+
+  @@unique([organizationId, masterSku])
+  @@index([organizationId, isActive])
+}
+
+model OnlineSku {
+  id                   String              @id @default(cuid())
+  organizationId       String
+  onlineSku            String
+  title                String?
+  channel              Channel
+  marketplaceAccountId String?
+  externalListingId    String?
+  safetyBufferUnits    Int                 @default(0)
+  isActive             Boolean             @default(true)
+  organization         Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  marketplaceAccount   MarketplaceAccount? @relation(fields: [marketplaceAccountId], references: [id])
+  components           SkuComponent[]
+  saleItems            SaleOrderItem[]
+
+  @@unique([organizationId, channel, onlineSku])
+  @@index([organizationId, channel, isActive])
+}
+
+model SkuComponent {
+  id               String        @id @default(cuid())
+  organizationId   String
+  onlineSkuId      String
+  masterProductId  String
+  quantityRequired Decimal       @db.Decimal(12, 4)
+  onlineSku        OnlineSku     @relation(fields: [onlineSkuId], references: [id], onDelete: Cascade)
+  masterProduct    MasterProduct @relation(fields: [masterProductId], references: [id])
+
+  @@unique([onlineSkuId, masterProductId])
+  @@index([organizationId, masterProductId])
+}
+
+model Warehouse {
+  id                 String              @id @default(cuid())
+  organizationId     String
+  name               String
+  type               WarehouseType
+  channel            Channel?
+  isSellable         Boolean             @default(true)
+  isExclusive        Boolean             @default(false)
+  isActive           Boolean             @default(true)
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  inventoryBalances  InventoryBalance[]
+  inventoryMovements InventoryMovement[]
+  purchaseItems      PurchaseItem[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId, type])
+}
+
+model InventoryBalance {
+  id               String        @id @default(cuid())
+  organizationId   String
+  masterProductId  String
+  warehouseId      String
+  physicalQuantity Decimal       @default(0) @db.Decimal(14, 4)
+  reservedQuantity Decimal       @default(0) @db.Decimal(14, 4)
+  blockedQuantity  Decimal       @default(0) @db.Decimal(14, 4)
+  updatedAt        DateTime      @updatedAt
+  organization     Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  masterProduct    MasterProduct @relation(fields: [masterProductId], references: [id])
+  warehouse        Warehouse     @relation(fields: [warehouseId], references: [id])
+
+  @@unique([organizationId, masterProductId, warehouseId])
+}
+
+model InventoryMovement {
+  id              String                @id @default(cuid())
+  organizationId  String
+  masterProductId String
+  warehouseId     String
+  movementType    InventoryMovementType
+  quantity        Decimal               @db.Decimal(14, 4)
+  referenceType   String?
+  referenceId     String?
+  reason          String?
+  notes           String?
+  createdById     String?
+  createdAt       DateTime              @default(now())
+  organization    Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  masterProduct   MasterProduct         @relation(fields: [masterProductId], references: [id])
+  warehouse       Warehouse             @relation(fields: [warehouseId], references: [id])
+
+  @@index([organizationId, masterProductId, createdAt])
+  @@index([organizationId, referenceType, referenceId])
+}
+
+model Supplier {
+  id             String          @id @default(cuid())
+  organizationId String
+  name           String
+  contactInfo    Json?
+  isActive       Boolean         @default(true)
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  purchaseOrders PurchaseOrder[]
+
+  @@unique([organizationId, name])
+}
+
+model PurchaseOrder {
+  id             String         @id @default(cuid())
+  organizationId String
+  supplierId     String?
+  purchasedAt    DateTime
+  status         String         @default("received")
+  notes          String?
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplier       Supplier?      @relation(fields: [supplierId], references: [id])
+  items          PurchaseItem[]
+
+  @@index([organizationId, purchasedAt])
+}
+
+model PurchaseItem {
+  id              String        @id @default(cuid())
+  organizationId  String
+  purchaseOrderId String
+  masterProductId String
+  warehouseId     String
+  quantity        Decimal       @db.Decimal(14, 4)
+  unitCost        Decimal       @db.Decimal(14, 4)
+  currency        String        @default("MXN")
+  landedCost      Decimal       @default(0) @db.Decimal(14, 4)
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  masterProduct   MasterProduct @relation(fields: [masterProductId], references: [id])
+  warehouse       Warehouse     @relation(fields: [warehouseId], references: [id])
+
+  @@index([organizationId, masterProductId])
+}
+
+model ProductCostSnapshot {
+  id              String        @id @default(cuid())
+  organizationId  String
+  masterProductId String
+  averageCost     Decimal       @db.Decimal(14, 4)
+  calculatedAt    DateTime      @default(now())
+  masterProduct   MasterProduct @relation(fields: [masterProductId], references: [id])
+
+  @@index([organizationId, masterProductId, calculatedAt])
+}
+
+model MarketplaceAccount {
+  id                    String       @id @default(cuid())
+  organizationId        String
+  channel               Channel
+  alias                 String
+  externalAccountId     String?
+  authStatus            String       @default("disconnected")
+  tokenEncrypted        String?
+  refreshTokenEncrypted String?
+  lastSyncAt            DateTime?
+  settings              Json?
+  isActive              Boolean      @default(true)
+  organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  onlineSkus            OnlineSku[]
+  saleOrders            SaleOrder[]
+
+  @@unique([organizationId, channel, alias])
+}
+
+model SaleOrder {
+  id                   String              @id @default(cuid())
+  organizationId       String
+  marketplaceAccountId String?
+  channel              Channel
+  externalOrderId      String?
+  orderedAt            DateTime
+  status               String
+  buyerReference       String?
+  grossAmount          Decimal             @default(0) @db.Decimal(14, 4)
+  netReceivedAmount    Decimal?            @db.Decimal(14, 4)
+  currency             String              @default("MXN")
+  payload              Json?
+  organization         Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  marketplaceAccount   MarketplaceAccount? @relation(fields: [marketplaceAccountId], references: [id])
+  items                SaleOrderItem[]
+  charges              SaleCharge[]
+
+  @@unique([organizationId, channel, externalOrderId])
+  @@index([organizationId, orderedAt])
+  @@index([organizationId, channel, orderedAt])
+  @@index([organizationId, externalOrderId])
+}
+
+model SaleOrderItem {
+  id             String              @id @default(cuid())
+  organizationId String
+  saleOrderId    String
+  onlineSkuId    String?
+  externalSku    String
+  quantity       Decimal             @db.Decimal(14, 4)
+  unitPrice      Decimal             @db.Decimal(14, 4)
+  grossAmount    Decimal             @db.Decimal(14, 4)
+  saleOrder      SaleOrder           @relation(fields: [saleOrderId], references: [id], onDelete: Cascade)
+  onlineSku      OnlineSku?          @relation(fields: [onlineSkuId], references: [id])
+  components     SaleItemComponent[]
+  charges        SaleCharge[]
+
+  @@index([organizationId, externalSku])
+  @@index([organizationId, saleOrderId])
+  @@index([saleOrderId])
+  @@index([onlineSkuId])
+}
+
+model SaleItemComponent {
+  id               String        @id @default(cuid())
+  organizationId   String
+  saleOrderItemId  String
+  masterProductId  String
+  quantityConsumed Decimal       @db.Decimal(14, 4)
+  unitCostAtSale   Decimal       @db.Decimal(14, 4)
+  totalCost        Decimal       @db.Decimal(14, 4)
+  saleOrderItem    SaleOrderItem @relation(fields: [saleOrderItemId], references: [id], onDelete: Cascade)
+  masterProduct    MasterProduct @relation(fields: [masterProductId], references: [id])
+
+  @@index([organizationId, masterProductId])
+  @@index([organizationId, saleOrderItemId])
+  @@index([saleOrderItemId])
+}
+
+model SaleCharge {
+  id              String         @id @default(cuid())
+  organizationId  String
+  saleOrderId     String
+  saleOrderItemId String?
+  chargeType      SaleChargeType
+  amount          Decimal        @db.Decimal(14, 4)
+  source          String?
+  notes           String?
+  saleOrder       SaleOrder      @relation(fields: [saleOrderId], references: [id], onDelete: Cascade)
+  saleOrderItem   SaleOrderItem? @relation(fields: [saleOrderItemId], references: [id])
+
+  @@index([organizationId, chargeType])
+  @@index([organizationId, saleOrderId])
+  @@index([organizationId, saleOrderItemId])
+  @@index([saleOrderId])
+  @@index([saleOrderItemId])
+}
+
+model SalesMonthlySummary {
+  id                    String       @id @default(cuid())
+  organizationId        String
+  month                 String
+  channel               Channel
+  marketplaceAccountId  String       @default("")
+  ordersCount           Int          @default(0)
+  unitsSold             Decimal      @default(0) @db.Decimal(14, 4)
+  grossAmount           Decimal      @default(0) @db.Decimal(14, 4)
+  netReceivedAmount     Decimal      @default(0) @db.Decimal(14, 4)
+  meliChargesAmount     Decimal      @default(0) @db.Decimal(14, 4)
+  productCostAmount     Decimal      @default(0) @db.Decimal(14, 4)
+  additionalCostsAmount Decimal      @default(0) @db.Decimal(14, 4)
+  profitAmount          Decimal      @default(0) @db.Decimal(14, 4)
+  unmappedItemsCount    Int          @default(0)
+  missingCostItemsCount Int          @default(0)
+  calculatedAt          DateTime     @default(now())
+  organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, month, channel, marketplaceAccountId])
+  @@index([organizationId, month])
+  @@index([organizationId, calculatedAt])
+}
+
+model ProductMonthlySummary {
+  id                    String         @id @default(cuid())
+  organizationId        String
+  month                 String
+  channel               Channel
+  marketplaceAccountId  String         @default("")
+  masterProductId       String?
+  masterSku             String
+  productName           String?
+  isMapped              Boolean        @default(true)
+  ordersCount           Int            @default(0)
+  unitsSold             Decimal        @default(0) @db.Decimal(14, 4)
+  grossAmount           Decimal        @default(0) @db.Decimal(14, 4)
+  netReceivedAmount     Decimal        @default(0) @db.Decimal(14, 4)
+  meliChargesAmount     Decimal        @default(0) @db.Decimal(14, 4)
+  productCostAmount     Decimal        @default(0) @db.Decimal(14, 4)
+  saleFullCostsAmount   Decimal        @default(0) @db.Decimal(14, 4)
+  profitAmount          Decimal        @default(0) @db.Decimal(14, 4)
+  missingCostItemsCount Int            @default(0)
+  calculatedAt          DateTime       @default(now())
+  organization          Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  masterProduct         MasterProduct? @relation(fields: [masterProductId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, month, channel, marketplaceAccountId, masterSku])
+  @@index([organizationId, month])
+  @@index([organizationId, masterSku])
+  @@index([organizationId, calculatedAt])
+}
+
+model Plan {
+  id            String         @id @default(cuid())
+  name          String         @unique
+  priceMonthly  Decimal        @db.Decimal(14, 4)
+  limits        Json?
+  isActive      Boolean        @default(true)
+  subscriptions Subscription[]
+}
+
+model Subscription {
+  id             String                @id @default(cuid())
+  organizationId String
+  planId         String
+  status         SubscriptionStatus    @default(trial)
+  startsAt       DateTime
+  expiresAt      DateTime
+  graceUntil     DateTime
+  lockMode       LockMode              @default(full_lock)
+  organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plan           Plan                  @relation(fields: [planId], references: [id])
+  payments       SubscriptionPayment[]
+
+  @@index([organizationId, status])
+}
+
+model SubscriptionPayment {
+  id             String        @id @default(cuid())
+  organizationId String
+  subscriptionId String?
+  amount         Decimal       @db.Decimal(14, 4)
+  method         String
+  paidAt         DateTime
+  coveredUntil   DateTime
+  notes          String?
+  createdById    String?
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id])
+
+  @@index([organizationId, paidAt])
+}
+
+model AuditLog {
+  id             String       @id @default(cuid())
+  organizationId String
+  userId         String?
+  action         String
+  entityType     String
+  entityId       String
+  before         Json?
+  after          Json?
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User?        @relation(fields: [userId], references: [id])
+
+  @@index([organizationId, entityType, entityId])
+  @@index([organizationId, createdAt])
+}
+
+model OperatingExpense {
+  id             String       @id @default(cuid())
+  organizationId String
+  month          String
+  category       String
+  description    String
+  amount         Decimal      @db.Decimal(14, 4)
+  paidAt         DateTime?
+  isRecurring    Boolean      @default(false)
+  frequency      String       @default("monthly")
+  periodStart    DateTime?
+  activeUntil    DateTime?
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, month])
+}
+
+model FullInventoryLayer {
+  id                        String       @id @default(cuid())
+  organizationId            String
+  dateReceived              DateTime
+  masterSku                 String
+  initialQuantity           Decimal      @db.Decimal(14, 4)
+  remainingQuantity         Decimal      @db.Decimal(14, 4)
+  unitVolumeM3              Decimal      @db.Decimal(12, 6)
+  inboundFreightCostTotal   Decimal      @db.Decimal(14, 4)
+  inboundFreightCostPerUnit Decimal      @db.Decimal(14, 4)
+  storageCostPerUnitPerDay  Decimal      @db.Decimal(14, 4)
+  note                      String?
+  organization              Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, masterSku])
+}
+
+model StockSyncQueue {
+  id               String       @id @default(cuid())
+  organizationId   String
+  onlineSku        String
+  channel          Channel
+  publishableStock Int
+  attempts         Int          @default(0)
+  lastAttemptAt    DateTime?
+  status           String       @default("pending") // pending, synced, failed
+  errorMessage     String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, onlineSku, channel])
+  @@index([organizationId, status])
+}
+
+model SyncRun {
+  id                   String       @id @default(cuid())
+  organizationId       String
+  marketplaceAccountId String?
+  channel              Channel?
+  jobType              String
+  status               String       @default("running") // running, success, skipped, failed
+  startedAt            DateTime     @default(now())
+  finishedAt           DateTime?
+  durationMs           Int?
+  checked              Int          @default(0)
+  imported             Int          @default(0)
+  pending              Int          @default(0)
+  total                Int          @default(0)
+  errorMessage         String?
+  details              Json?
+  organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, jobType, startedAt])
+  @@index([organizationId, marketplaceAccountId, startedAt])
+  @@index([organizationId, status, startedAt])
+}

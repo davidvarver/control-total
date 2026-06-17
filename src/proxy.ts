@@ -4,10 +4,28 @@ const sessionCookieName = "ct_session";
 const maxBodyBytes = 15 * 1024 * 1024;
 const mutatingMethods = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const apiBuckets = new Map<string, { count: number; resetAt: number }>();
-const apiRateLimit = 240;
-const apiRateWindowMs = 60 * 1000;
 const maxApiBuckets = 20_000;
 let lastApiBucketSweepAt = 0;
+
+type RateLimitRule = {
+  name: string;
+  limit: number;
+  windowMs: number;
+};
+
+const oneMinuteMs = 60 * 1000;
+const tenMinutesMs = 10 * oneMinuteMs;
+
+const apiRateRules = {
+  auth: { name: "auth", limit: 10, windowMs: tenMinutesMs },
+  suspiciousAuth: { name: "suspicious-auth", limit: 3, windowMs: tenMinutesMs },
+  assistant: { name: "assistant", limit: 30, windowMs: oneMinuteMs },
+  sync: { name: "sync", limit: 20, windowMs: oneMinuteMs },
+  imports: { name: "imports", limit: 30, windowMs: oneMinuteMs },
+  exports: { name: "exports", limit: 30, windowMs: oneMinuteMs },
+  mutation: { name: "mutation", limit: 120, windowMs: oneMinuteMs },
+  general: { name: "general", limit: 240, windowMs: oneMinuteMs },
+} satisfies Record<string, RateLimitRule>;
 
 const publicPaths = [
   "/",
@@ -51,8 +69,75 @@ function clientIp(request: NextRequest) {
   );
 }
 
+function rateLimitKey(request: NextRequest, rule: RateLimitRule) {
+  const sessionId = request.cookies.get(sessionCookieName)?.value ?? "anon";
+  return [
+    rule.name,
+    clientIp(request),
+    sessionId,
+    request.method,
+    request.nextUrl.pathname,
+  ].join(":");
+}
+
+export function rateLimitRuleFor(request: NextRequest): RateLimitRule {
+  const { pathname } = request.nextUrl;
+
+  if (pathname === "/api/auth/login" || pathname === "/api/auth/register") {
+    return hasSuspiciousAuthUserAgent(request)
+      ? apiRateRules.suspiciousAuth
+      : apiRateRules.auth;
+  }
+
+  if (pathname === "/api/assistant") {
+    return apiRateRules.assistant;
+  }
+
+  if (
+    pathname.startsWith("/api/integrations/meli/") ||
+    pathname.startsWith("/api/cron/") ||
+    pathname === "/api/admin/meli-sync" ||
+    pathname === "/api/recalculate"
+  ) {
+    return apiRateRules.sync;
+  }
+
+  if (pathname.startsWith("/api/import/")) {
+    return apiRateRules.imports;
+  }
+
+  if (pathname.startsWith("/api/export/") || pathname.startsWith("/api/templates/")) {
+    return apiRateRules.exports;
+  }
+
+  if (mutatingMethods.has(request.method)) {
+    return apiRateRules.mutation;
+  }
+
+  return apiRateRules.general;
+}
+
+export function hasSuspiciousAuthUserAgent(request: NextRequest) {
+  const userAgent = request.headers.get("user-agent")?.toLowerCase().trim() ?? "";
+
+  if (!userAgent) {
+    return true;
+  }
+
+  return [
+    "curl",
+    "wget",
+    "python-requests",
+    "httpclient",
+    "scrapy",
+    "spider",
+    "bot",
+  ].some((signature) => userAgent.includes(signature));
+}
+
 function hitApiRateLimit(request: NextRequest) {
-  const key = `${clientIp(request)}:${request.nextUrl.pathname}`;
+  const rule = rateLimitRuleFor(request);
+  const key = rateLimitKey(request, rule);
   const now = Date.now();
   sweepApiBuckets(now);
   const bucket = apiBuckets.get(key);
@@ -61,12 +146,12 @@ function hitApiRateLimit(request: NextRequest) {
     if (apiBuckets.size >= maxApiBuckets) {
       dropOldestApiBucket();
     }
-    apiBuckets.set(key, { count: 1, resetAt: now + apiRateWindowMs });
-    return false;
+    apiBuckets.set(key, { count: 1, resetAt: now + rule.windowMs });
+    return { limited: false, rule, resetAt: now + rule.windowMs };
   }
 
   bucket.count += 1;
-  return bucket.count > apiRateLimit;
+  return { limited: bucket.count > rule.limit, rule, resetAt: bucket.resetAt };
 }
 
 export function proxy(request: NextRequest) {
@@ -88,11 +173,26 @@ export function proxy(request: NextRequest) {
     return NextResponse.json({ error: "Origen no permitido." }, { status: 403 });
   }
 
-  if (pathname.startsWith("/api/") && hitApiRateLimit(request)) {
-    return NextResponse.json(
-      { error: "Demasiadas solicitudes. Intenta de nuevo en un momento." },
-      { status: 429 },
-    );
+  if (pathname.startsWith("/api/")) {
+    const rateLimit = hitApiRateLimit(request);
+    if (rateLimit.limited) {
+      const retryAfterSeconds = Math.max(
+        1,
+        Math.ceil((rateLimit.resetAt - Date.now()) / 1000),
+      );
+
+      return NextResponse.json(
+        { error: "Demasiadas solicitudes. Intenta de nuevo en un momento." },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(retryAfterSeconds),
+            "X-RateLimit-Limit": String(rateLimit.rule.limit),
+            "X-RateLimit-Policy": rateLimit.rule.name,
+          },
+        },
+      );
+    }
   }
 
   if (isPublicPath(pathname)) {

@@ -187,7 +187,7 @@ export function InventoryStockIngress({
       <button
         type="button"
         className="absolute inset-0 cursor-default"
-        aria-label="Cerrar ingreso rapido"
+        aria-label="Cerrar ingreso"
         onClick={() => setIsOpen(false)}
       />
       <div className="relative my-auto max-h-[calc(100vh-2rem)] w-full max-w-[min(96vw,1120px)] overflow-auto rounded-[28px] border border-white/15 bg-[#111720]/95 text-white shadow-2xl shadow-black/50">
@@ -388,7 +388,7 @@ export function InventoryStockIngress({
         className="ct-button ct-button-primary inline-flex items-center gap-2"
       >
         <PackagePlus size={18} />
-        Ingreso rapido
+        Ingreso
       </button>
       {portalTarget && isOpen ? createPortal(modal, portalTarget) : null}
     </>

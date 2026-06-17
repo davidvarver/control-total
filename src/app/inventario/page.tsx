@@ -126,16 +126,14 @@ async function InventoryContent({ searchParams }: InventoryPageProps) {
           </div>
         ) : null}
 
-        <section className="ct-ops-panel">
-          <div className="ct-ops-panel-header">
-            <div>
-              <p className="ct-ops-kicker">Carga manual sin Excel</p>
-              <h2 className="ct-ops-title mt-1">Ingreso rapido por SKU</h2>
-              <p className="ct-ops-copy">
-                Escribe el SKU maestro, confirma piezas y agrega varios renglones
-                sin salir de inventario.
-              </p>
-            </div>
+        <section className="ct-ops-filterbar">
+          <div className="min-w-0">
+            <p className="ct-ops-kicker">Acciones rápidas</p>
+            <p className="ct-ops-copy">
+              Ingreso suma stock. Conteo reemplaza el fisico contado para un SKU.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
             <InventoryStockIngress
               products={report.rows.map((row) => ({
                 masterSku: row.masterSku,
@@ -148,6 +146,13 @@ async function InventoryContent({ searchParams }: InventoryPageProps) {
               }))}
               firstWarehouseId={firstWarehouseId}
             />
+            <Link
+              href="/importar#inventario"
+              prefetch={false}
+              className="ct-button ct-button-secondary"
+            >
+              Cargar Excel
+            </Link>
           </div>
         </section>
 

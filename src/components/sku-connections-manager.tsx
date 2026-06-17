@@ -1,8 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
-import { Archive, Link2, Link2Off, PlusCircle, Save, Search, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Archive,
+  ChevronDown,
+  Link2,
+  Link2Off,
+  PlusCircle,
+  Save,
+  Search,
+  Trash2,
+} from "lucide-react";
 import { AsyncForm } from "@/components/async-form";
 import { ProductThumbnail } from "@/components/product-thumbnail";
 
@@ -59,6 +68,8 @@ export function SkuConnectionsManager({
   onlineSkusWithoutMaster,
 }: SkuConnectionsManagerProps) {
   const [query, setQuery] = useState("");
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [visibleLimit, setVisibleLimit] = useState(35);
   const normalizedQuery = query.trim().toLowerCase();
   const filteredRows = useMemo(() => {
     if (!normalizedQuery) {
@@ -73,170 +84,241 @@ export function SkuConnectionsManager({
           (sku) =>
             sku.onlineSku.toLowerCase().includes(normalizedQuery) ||
             sku.title.toLowerCase().includes(normalizedQuery),
-        ),
+      ),
     );
   }, [normalizedQuery, rows]);
+  const visibleRows = filteredRows.slice(0, visibleLimit);
+  const hiddenRows = Math.max(0, filteredRows.length - visibleRows.length);
+
+  useEffect(() => {
+    const openFromHash = () => {
+      if (window.location.hash === "#productos-skus") {
+        window.setTimeout(() => setIsExpanded(true), 0);
+      }
+    };
+
+    openFromHash();
+    window.addEventListener("hashchange", openFromHash);
+    return () => window.removeEventListener("hashchange", openFromHash);
+  }, []);
+
+  function updateQuery(value: string) {
+    setQuery(value);
+    setVisibleLimit(value.trim() ? 80 : 35);
+  }
 
   return (
-    <section id="productos-skus" className="rounded-lg border border-zinc-200 bg-white">
+    <section id="productos-skus" className="ct-ops-panel scroll-mt-24">
       <div className="border-b border-zinc-200 px-4 py-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="font-semibold">Productos y SKUs conectados</h2>
-            <p className="text-sm text-zinc-500">
+            <p className="ct-ops-kicker">Mapa maestro</p>
+            <h2 className="ct-ops-title mt-1">Productos y SKUs conectados</h2>
+            <p className="ct-ops-copy">
               SKU maestro de bodega, SKUs online que lo consumen y cantidad descontada por venta.
             </p>
           </div>
-          <div className="grid grid-cols-3 gap-2 text-center text-xs">
-            <ConnectionMetric label="Maestros" value={rows.length} />
-            <ConnectionMetric
-              label="Maestros sin online"
-              value={masterSkusWithoutEquivalences.length}
-              tone={masterSkusWithoutEquivalences.length > 0 ? "amber" : "emerald"}
-            />
-            <ConnectionMetric
-              label="Online sin maestro"
-              value={onlineSkusWithoutMaster.length}
-              tone={onlineSkusWithoutMaster.length > 0 ? "amber" : "emerald"}
-            />
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="grid grid-cols-3 gap-2 text-center text-xs">
+              <ConnectionMetric label="Maestros" value={rows.length} />
+              <ConnectionMetric
+                label="Maestros sin online"
+                value={masterSkusWithoutEquivalences.length}
+                tone={masterSkusWithoutEquivalences.length > 0 ? "amber" : "emerald"}
+              />
+              <ConnectionMetric
+                label="Online sin maestro"
+                value={onlineSkusWithoutMaster.length}
+                tone={onlineSkusWithoutMaster.length > 0 ? "amber" : "emerald"}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsExpanded((value) => !value)}
+              className="ct-button ct-button-secondary inline-flex items-center gap-2"
+            >
+              {isExpanded ? "Ocultar gestor" : "Abrir gestor"}
+              <ChevronDown
+                size={16}
+                className={isExpanded ? "rotate-180 transition" : "transition"}
+              />
+            </button>
           </div>
         </div>
-        <div className="mt-3 grid gap-2 md:grid-cols-[minmax(240px,1fr)_auto]">
-          <label className="relative block">
-            <Search
-              size={16}
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400"
-            />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Buscar SKU maestro, producto o SKU online"
-              className="h-10 w-full rounded-md border border-zinc-300 pl-9 pr-3 text-sm outline-none focus:border-zinc-950"
-            />
-          </label>
-          <Link
-            href="/meli#skus-sin-mapear"
-            prefetch={false}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-          >
-            <Link2Off size={16} />
-            Pendientes Meli
-          </Link>
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <ConnectionSummaryCard
+            label="Maestros sin online"
+            value={masterSkusWithoutEquivalences.length}
+            detail="Productos que no descuentan ventas online."
+            tone={masterSkusWithoutEquivalences.length > 0 ? "amber" : "emerald"}
+          />
+          <ConnectionSummaryCard
+            label="Online sin maestro"
+            value={onlineSkusWithoutMaster.length}
+            detail="Publicaciones detectadas que no descuentan stock."
+            tone={onlineSkusWithoutMaster.length > 0 ? "amber" : "emerald"}
+          />
+          <ConnectionSummaryCard
+            label="Relaciones editables"
+            value={rows.reduce((sum, row) => sum + row.linkedOnlineSkus.length, 0)}
+            detail="Consumos por SKU listos para ajustar."
+          />
         </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[1280px] text-left text-sm">
-          <thead className="border-b border-zinc-200 bg-zinc-50 text-xs uppercase text-zinc-500">
-            <tr>
-              <th className="px-4 py-3">SKU maestro</th>
-              <th className="px-4 py-3">Producto</th>
-              <th className="px-4 py-3">SKUs online que consumen este maestro</th>
-              <th className="px-4 py-3">Agregar relacion</th>
-              <th className="px-4 py-3">Stock</th>
-              <th className="px-4 py-3">Acciones</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-100">
-            {filteredRows.map((row) => (
-              <tr key={row.masterSku} className="align-top">
-                <td className="px-4 py-3">
-                  <Link
-                    href={`/inventario/${encodeURIComponent(row.masterSku)}`}
-                    prefetch={false}
-                    className="font-mono text-xs font-black underline decoration-zinc-300 underline-offset-2"
-                  >
-                    {row.masterSku}
-                  </Link>
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex max-w-[300px] items-center gap-3">
-                    <ProductThumbnail imageUrl={row.imageUrl} label={row.name || row.masterSku} />
-                    <div className="min-w-0">
-                      <p className="line-clamp-2 font-semibold text-zinc-950">{row.name}</p>
-                      <p className="mt-1 text-xs text-zinc-500">
-                        {row.onlineSkuCount} online ligado(s)
+      {isExpanded ? (
+        <>
+          <div className="border-b border-white/10 px-4 py-3">
+            <div className="grid gap-2 md:grid-cols-[minmax(240px,1fr)_auto]">
+              <label className="relative block">
+                <Search
+                  size={16}
+                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400"
+                />
+                <input
+                  value={query}
+                  onChange={(event) => updateQuery(event.target.value)}
+                  placeholder="Buscar SKU maestro, producto o SKU online"
+                  className="ct-input h-10 w-full pl-9 pr-3"
+                />
+              </label>
+              <Link
+                href="/meli#skus-sin-mapear"
+                prefetch={false}
+                className="ct-button ct-button-secondary inline-flex items-center justify-center gap-2"
+              >
+                <Link2Off size={16} />
+                Pendientes Meli
+              </Link>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1280px] text-left text-sm">
+              <thead className="border-b border-zinc-200 bg-zinc-50 text-xs uppercase text-zinc-500">
+                <tr>
+                  <th className="px-4 py-3">SKU maestro</th>
+                  <th className="px-4 py-3">Producto</th>
+                  <th className="px-4 py-3">SKUs online que consumen este maestro</th>
+                  <th className="px-4 py-3">Agregar relacion</th>
+                  <th className="px-4 py-3">Stock</th>
+                  <th className="px-4 py-3">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100">
+                {visibleRows.map((row) => (
+                  <tr key={row.masterSku} className="align-top">
+                    <td className="px-4 py-3">
+                      <Link
+                        href={`/inventario/${encodeURIComponent(row.masterSku)}`}
+                        prefetch={false}
+                        className="font-mono text-xs font-black underline decoration-zinc-300 underline-offset-2"
+                      >
+                        {row.masterSku}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex max-w-[300px] items-center gap-3">
+                        <ProductThumbnail imageUrl={row.imageUrl} label={row.name || row.masterSku} />
+                        <div className="min-w-0">
+                          <p className="line-clamp-2 font-semibold text-zinc-950">{row.name}</p>
+                          <p className="mt-1 text-xs text-zinc-500">
+                            {row.onlineSkuCount} online ligado(s)
+                          </p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      {row.linkedOnlineSkus.length > 0 ? (
+                        <div className="space-y-2">
+                          {row.linkedOnlineSkus.map((sku) => (
+                            <ConnectionEditor
+                              key={`${row.masterSku}:${sku.onlineSku}`}
+                              masterSku={row.masterSku}
+                              sku={sku}
+                            />
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800">
+                          <Link2Off size={14} />
+                          Sin SKU online conectado
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <AddConnectionForm
+                        masterSku={row.masterSku}
+                        onlineSkuCatalog={onlineSkuCatalog}
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <p className="font-semibold">
+                        {number.format(row.estimatedPhysicalQuantity)}
                       </p>
-                    </div>
-                  </div>
-                </td>
-                <td className="px-4 py-3">
-                  {row.linkedOnlineSkus.length > 0 ? (
-                    <div className="space-y-2">
-                      {row.linkedOnlineSkus.map((sku) => (
-                        <ConnectionEditor
-                          key={`${row.masterSku}:${sku.onlineSku}`}
-                          masterSku={row.masterSku}
-                          sku={sku}
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800">
-                      <Link2Off size={14} />
-                      Sin SKU online conectado
-                    </span>
-                  )}
-                </td>
-                <td className="px-4 py-3">
-                  <AddConnectionForm
-                    masterSku={row.masterSku}
-                    onlineSkuCatalog={onlineSkuCatalog}
-                  />
-                </td>
-                <td className="px-4 py-3">
-                  <p className="font-semibold">
-                    {number.format(row.estimatedPhysicalQuantity)}
-                  </p>
-                  <p className="text-xs text-zinc-500">
-                    disponible {number.format(row.sellableQuantity)}
-                  </p>
-                </td>
-                <td className="px-4 py-3">
-                  <MasterProductDeleteForm
-                    masterSku={row.masterSku}
-                    hasHistoricalReferences={row.hasHistoricalReferences}
-                  />
-                </td>
-              </tr>
+                      <p className="text-xs text-zinc-500">
+                        disponible {number.format(row.sellableQuantity)}
+                      </p>
+                    </td>
+                    <td className="px-4 py-3">
+                      <MasterProductDeleteForm
+                        masterSku={row.masterSku}
+                        hasHistoricalReferences={row.hasHistoricalReferences}
+                      />
+                    </td>
+                  </tr>
+                ))}
+                {filteredRows.length === 0 ? (
+                  <tr>
+                    <td className="px-4 py-8 text-center text-zinc-500" colSpan={6}>
+                      No encontre SKUs con ese filtro.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+
+          {hiddenRows > 0 ? (
+            <div className="border-t border-white/10 px-4 py-3 text-center">
+              <button
+                type="button"
+                onClick={() => setVisibleLimit((limit) => limit + 35)}
+                className="ct-button ct-button-secondary"
+              >
+                Mostrar {Math.min(35, hiddenRows)} mas de {number.format(hiddenRows)}
+              </button>
+            </div>
+          ) : null}
+
+          <div className="grid gap-4 border-t border-zinc-200 p-4 xl:grid-cols-2">
+            <UnlinkedMastersPanel rows={masterSkusWithoutEquivalences} />
+            <UnlinkedOnlinePanel
+              rows={onlineSkusWithoutMaster}
+              masterProducts={rows.map((row) => ({
+                masterSku: row.masterSku,
+                name: row.name,
+                hasHistoricalReferences: row.hasHistoricalReferences,
+              }))}
+            />
+          </div>
+
+          <datalist id="sku-connection-online-options">
+            {onlineSkuCatalog.map((sku) => (
+              <option key={sku.onlineSku} value={sku.onlineSku}>
+                {sku.title} | {formatChannelLabel(sku.channel)} / {sku.accountAlias}
+              </option>
             ))}
-            {filteredRows.length === 0 ? (
-              <tr>
-                <td className="px-4 py-8 text-center text-zinc-500" colSpan={6}>
-                  No encontre SKUs con ese filtro.
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="grid gap-4 border-t border-zinc-200 p-4 xl:grid-cols-2">
-        <UnlinkedMastersPanel rows={masterSkusWithoutEquivalences} />
-        <UnlinkedOnlinePanel
-          rows={onlineSkusWithoutMaster}
-          masterProducts={rows.map((row) => ({
-            masterSku: row.masterSku,
-            name: row.name,
-            hasHistoricalReferences: row.hasHistoricalReferences,
-          }))}
-        />
-      </div>
-
-      <datalist id="sku-connection-online-options">
-        {onlineSkuCatalog.map((sku) => (
-          <option key={sku.onlineSku} value={sku.onlineSku}>
-            {sku.title} | {formatChannelLabel(sku.channel)} / {sku.accountAlias}
-          </option>
-        ))}
-      </datalist>
-      <datalist id="sku-connection-master-options">
-        {rows.map((row) => (
-          <option key={row.masterSku} value={row.masterSku}>
-            {row.name}
-          </option>
-        ))}
-      </datalist>
+          </datalist>
+          <datalist id="sku-connection-master-options">
+            {rows.map((row) => (
+              <option key={row.masterSku} value={row.masterSku}>
+                {row.name}
+              </option>
+            ))}
+          </datalist>
+        </>
+      ) : null}
     </section>
   );
 }
@@ -519,6 +601,40 @@ function ConnectionMetric({
     <div className={`min-w-24 rounded-md border px-2 py-1 ${toneClass}`}>
       <p className="text-[10px] font-black uppercase">{label}</p>
       <p className="text-lg font-black">{number.format(value)}</p>
+    </div>
+  );
+}
+
+function ConnectionSummaryCard({
+  label,
+  value,
+  detail,
+  tone = "neutral",
+}: {
+  label: string;
+  value: number;
+  detail: string;
+  tone?: "neutral" | "amber" | "emerald";
+}) {
+  const toneClass =
+    tone === "amber"
+      ? "border-amber-300/35 bg-amber-300/10 text-amber-100"
+      : tone === "emerald"
+        ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-100"
+        : "border-white/10 bg-white/[0.05] text-slate-100";
+
+  return (
+    <div className={`rounded-2xl border px-3 py-3 ${toneClass}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-black uppercase tracking-[0.14em] opacity-80">
+            {label}
+          </p>
+          <p className="mt-2 text-2xl font-black">{number.format(value)}</p>
+        </div>
+        <span className="mt-1 h-2.5 w-2.5 rounded-full bg-current opacity-70" />
+      </div>
+      <p className="mt-2 text-xs font-semibold leading-5 opacity-75">{detail}</p>
     </div>
   );
 }

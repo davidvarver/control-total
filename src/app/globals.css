@@ -4580,3 +4580,15 @@ form button.ct-button,
     min-width: min(100%, 170px);
   }
 }
+
+.ct-dashboard-hero-summary {
+  border-radius: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.095), rgba(255, 255, 255, 0.035)),
+    rgba(255, 255, 255, 0.05);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.13),
+    0 24px 70px rgba(0, 0, 0, 0.28);
+  padding: 20px;
+}

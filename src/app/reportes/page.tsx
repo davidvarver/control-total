@@ -49,6 +49,12 @@ async function ReportsContent() {
 
   return (
     <div className="ct-ops-page">
+      <ReportsHero
+        orders={dashboard.kpis.meliOrders}
+        netProfit={dashboard.kpis.netProfit}
+        suggestedUnits={restock.totals.suggestedUnits}
+      />
+
       <section className="ct-ops-kpi-grid">
         <Kpi
           label="Venta Meli"
@@ -82,7 +88,17 @@ async function ReportsContent() {
         />
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-3">
+      <ReportSection
+        title="Operacion diaria"
+        detail="Lo que el equipo revisa para entender ventas, utilidad e inventario."
+      >
+        <ReportCard
+          title="Ventas"
+          detail="Ordenes importadas, estados, cargos reales, fotos e items."
+          href="/ventas"
+          exportHref="/api/export/ventas"
+          icon={<ShoppingCart size={20} />}
+        />
         <ReportCard
           title="Utilidad"
           detail="Utilidad por venta y mes, con gastos operativos."
@@ -92,12 +108,18 @@ async function ReportsContent() {
           tone="green"
         />
         <ReportCard
-          title="Ventas"
-          detail="Ventas importadas, estados, cargos reales y items."
-          href="/ventas"
-          exportHref="/api/export/ventas"
-          icon={<ShoppingCart size={20} />}
+          title="Inventario"
+          detail="Stock por SKU maestro, costo promedio, valor y bodega."
+          href="/inventario"
+          exportHref="/api/export/inventario"
+          icon={<Package size={20} />}
         />
+      </ReportSection>
+
+      <ReportSection
+        title="Decisiones"
+        detail="Vistas para corregir riesgos, comprar mejor y no confiar en datos incompletos."
+      >
         <ReportCard
           title="Resurtido"
           detail="Compra sugerida segun ventas de 90 dias."
@@ -121,13 +143,12 @@ async function ReportsContent() {
           exportHref={null}
           icon={<FileSpreadsheet size={20} />}
         />
-        <ReportCard
-          title="Inventario"
-          detail="Stock por SKU maestro, costo promedio, valor y bodega."
-          href="/inventario"
-          exportHref="/api/export/inventario"
-          icon={<Package size={20} />}
-        />
+      </ReportSection>
+
+      <ReportSection
+        title="Control"
+        detail="Herramientas de revision cuando algo no cuadra o falta para cerrar numeros."
+      >
         <ReportCard
           title="Auditoria"
           detail="Ventas con datos inconsistentes para reparar contra Meli."
@@ -142,7 +163,68 @@ async function ReportsContent() {
           exportHref={null}
           icon={<FileSpreadsheet size={20} />}
         />
-      </section>
+      </ReportSection>
+    </div>
+  );
+}
+
+function ReportsHero({
+  orders,
+  netProfit,
+  suggestedUnits,
+}: {
+  orders: number;
+  netProfit: number;
+  suggestedUnits: number;
+}) {
+  return (
+    <section className="ct-dashboard-hero grid gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_420px] lg:p-8">
+      <div>
+        <p className="ct-ops-kicker">Centro de reportes</p>
+        <h2 className="ct-dashboard-hero-title mt-3">
+          Ventas y utilidad viven aqui
+        </h2>
+        <p className="ct-dashboard-hero-copy mt-3 max-w-3xl">
+          Reportes agrupa dinero, operacion y decisiones para que el menu principal
+          no se vuelva una lista eterna.
+        </p>
+        <div className="mt-6 flex flex-wrap gap-2">
+          <Link href="/ventas" prefetch={false} className="ct-button ct-button-primary">
+            <ShoppingCart size={16} />
+            Ver ventas
+          </Link>
+          <Link href="/utilidad" prefetch={false} className="ct-button ct-button-secondary">
+            <BadgeDollarSign size={16} />
+            Ver utilidad
+          </Link>
+          <Link href="/resurtido" prefetch={false} className="ct-button ct-button-secondary">
+            <TrendingUp size={16} />
+            Resurtido
+          </Link>
+        </div>
+      </div>
+
+      <div className="ct-dashboard-hero-summary">
+        <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
+          Resumen
+        </p>
+        <div className="mt-4 grid grid-cols-3 gap-2">
+          <HeroStat label="Ventas" value={number.format(orders)} />
+          <HeroStat label="Utilidad" value={money.format(netProfit)} />
+          <HeroStat label="Resurtido" value={number.format(suggestedUnits)} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function HeroStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[20px] border border-white/10 bg-black/15 px-3 py-3">
+      <p className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">
+        {label}
+      </p>
+      <p className="mt-1 truncate text-base font-black text-white">{value}</p>
     </div>
   );
 }
@@ -211,6 +293,26 @@ function Kpi({
       <p className="ct-ops-kpi-value">{value}</p>
       <p className="ct-ops-kpi-detail">{detail}</p>
     </div>
+  );
+}
+
+function ReportSection({
+  title,
+  detail,
+  children,
+}: {
+  title: string;
+  detail: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="space-y-4">
+      <div>
+        <p className="ct-ops-kicker">{title}</p>
+        <p className="ct-ops-copy mt-1">{detail}</p>
+      </div>
+      <div className="grid gap-4 xl:grid-cols-3">{children}</div>
+    </section>
   );
 }
 

@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   ArrowRight,
   BadgeDollarSign,
+  BarChart3,
   Boxes,
   CalendarDays,
   ClipboardCheck,
@@ -129,6 +130,16 @@ async function DashboardContent({
   return (
     <div className="space-y-6">
       <Messages params={params} />
+
+      <DashboardHero
+        organization={user.organizationName}
+        todayDisplay={todayDisplay}
+        month={dashboard.currentMonth.month}
+        orders={canViewSales ? dashboard.currentDay.orders : null}
+        pendingTotal={pendingTotal}
+        roiText={canViewProfit ? dayRoiText : "Privado"}
+        unmappedSkus={canViewSkuPending ? status.counts.unmappedSkus : null}
+      />
 
       <DashboardRangeBar
         month={dashboard.currentMonth.month}
@@ -390,6 +401,95 @@ async function DashboardContent({
           ) : null}
         </div>
       </section>
+    </div>
+  );
+}
+
+function DashboardHero({
+  organization,
+  todayDisplay,
+  month,
+  orders,
+  pendingTotal,
+  roiText,
+  unmappedSkus,
+}: {
+  organization: string;
+  todayDisplay: string;
+  month: string;
+  orders: number | null;
+  pendingTotal: number;
+  roiText: string;
+  unmappedSkus: number | null;
+}) {
+  return (
+    <section className="ct-dashboard-hero grid gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_420px] lg:p-8">
+      <div className="min-w-0">
+        <p className="ct-ops-kicker">Centro operativo</p>
+        <h2 className="ct-dashboard-hero-title mt-3">
+          Resumen operativo
+        </h2>
+        <p className="ct-dashboard-hero-copy mt-3 max-w-3xl">
+          Venta, utilidad, inventario y pendientes reales para decidir que corregir primero.
+        </p>
+        <p className="mt-3 text-xs font-black uppercase tracking-[0.14em] text-slate-500">
+          Cuenta {organization}
+        </p>
+        <div className="mt-6 flex flex-wrap gap-2">
+          <Link href="/setup" prefetch={false} className="ct-button ct-button-primary">
+            <ClipboardCheck size={16} />
+            Resolver pendientes
+          </Link>
+          <Link href="/reportes" prefetch={false} className="ct-button ct-button-secondary">
+            <BarChart3 size={16} />
+            Ver reportes
+          </Link>
+          <Link href="/meli" prefetch={false} className="ct-button ct-button-secondary">
+            <Link2 size={16} />
+            Conexiones
+          </Link>
+        </div>
+      </div>
+
+      <div className="ct-dashboard-hero-summary">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
+              Periodo
+            </p>
+            <p className="mt-1 text-lg font-black text-white">{todayDisplay}</p>
+            <p className="text-sm font-semibold text-slate-400">{formatMonthLabel(month)}</p>
+          </div>
+          <CalendarDays size={22} className="text-blue-100" />
+        </div>
+        <div className="mt-5 grid grid-cols-3 gap-2">
+          <HeroMiniMetric
+            label="Ordenes"
+            value={orders === null ? "Privado" : number.format(orders)}
+          />
+          <HeroMiniMetric label="Pendientes" value={number.format(pendingTotal)} />
+          <HeroMiniMetric label="ROI" value={roiText} />
+        </div>
+        <Link
+          href="/setup#mapear"
+          prefetch={false}
+          className="mt-4 flex items-center justify-between rounded-[22px] border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-black text-slate-200 transition hover:bg-white/[0.1] hover:text-white"
+        >
+          <span>SKUs sin mapear</span>
+          <span>{unmappedSkus === null ? "Privado" : number.format(unmappedSkus)}</span>
+        </Link>
+      </div>
+    </section>
+  );
+}
+
+function HeroMiniMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[20px] border border-white/10 bg-black/15 px-3 py-3">
+      <p className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">
+        {label}
+      </p>
+      <p className="mt-1 truncate text-lg font-black text-white">{value}</p>
     </div>
   );
 }
@@ -881,4 +981,17 @@ function formatDateDisplay(date: Date) {
     year: "numeric",
     timeZone: "America/Mexico_City",
   }).format(date);
+}
+
+function formatMonthLabel(month: string) {
+  const parsed = new Date(`${month}-01T00:00:00-06:00`);
+  if (Number.isNaN(parsed.getTime())) {
+    return month;
+  }
+
+  return new Intl.DateTimeFormat("es-MX", {
+    month: "long",
+    year: "numeric",
+    timeZone: "America/Mexico_City",
+  }).format(parsed);
 }

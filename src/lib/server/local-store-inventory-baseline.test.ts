@@ -3,6 +3,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createEmptyStore } from "./empty-store";
 import {
+  addInventoryIngress,
   readLocalStore,
   replaceInventoryQuantities,
   runWithOrganization,
@@ -27,6 +28,92 @@ afterEach(async () => {
 });
 
 describe("marketplace inventory baseline", () => {
+  it("adds multi-line manual ingress without creating new SKUs", async () => {
+    await writeOrganizationStore(organization.id, {
+      ...createEmptyStore(),
+      organization,
+      products: [
+        {
+          id: "prod_sku_a",
+          masterSku: "SKU-A",
+          name: "SKU A",
+          currentStock: 2,
+          totalIngresado: 2,
+          totalVendido: 0,
+          targetInventoryDays: 90,
+          averageUnitCost: 10,
+          isActive: true,
+        },
+        {
+          id: "prod_sku_b",
+          masterSku: "SKU-B",
+          name: "SKU B",
+          currentStock: 0,
+          totalIngresado: 0,
+          totalVendido: 0,
+          targetInventoryDays: 90,
+          averageUnitCost: 0,
+          isActive: true,
+        },
+      ],
+      inventoryBalances: [
+        {
+          masterSku: "SKU-A",
+          warehouseId: "wh_main",
+          physicalQuantity: 2,
+          reservedQuantity: 0,
+          blockedQuantity: 0,
+        },
+      ],
+    });
+
+    await runWithOrganization(organization, async () => {
+      const result = await addInventoryIngress({
+        warehouseId: "wh_main",
+        reference: "Factura 123",
+        updateCosts: true,
+        lines: [
+          { masterSku: "SKU-A", quantity: 3, averageUnitCost: 11.5 },
+          { masterSku: "SKU-B", quantity: 4 },
+        ],
+      });
+
+      const store = await readLocalStore();
+      expect(result.appliedLines).toHaveLength(2);
+      expect(getMainBalance(store, "SKU-A")).toBe(5);
+      expect(getMainBalance(store, "SKU-B")).toBe(4);
+      expect(
+        store.products.find((product) => product.masterSku === "SKU-A")
+          ?.averageUnitCost,
+      ).toBe(11.5);
+      expect(
+        store.inventoryMovements.filter(
+          (movement) => movement.reference === "manual_ingress",
+        ),
+      ).toHaveLength(2);
+    });
+  });
+
+  it("rejects manual ingress for unknown master SKUs", async () => {
+    await writeOrganizationStore(organization.id, {
+      ...createEmptyStore(),
+      organization,
+    });
+
+    await runWithOrganization(organization, async () => {
+      await expect(
+        addInventoryIngress({
+          warehouseId: "wh_main",
+          lines: [{ masterSku: "NO-EXISTE", quantity: 1 }],
+        }),
+      ).rejects.toThrow("SKU maestro no existe");
+
+      const store = await readLocalStore();
+      expect(store.products).toHaveLength(0);
+      expect(store.inventoryMovements).toHaveLength(0);
+    });
+  });
+
   it("does not re-discount historical Meli orders after current stock is imported", async () => {
     await writeOrganizationStore(organization.id, {
       ...createEmptyStore(),

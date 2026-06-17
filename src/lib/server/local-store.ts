@@ -2676,6 +2676,127 @@ export async function addInventoryAdjustment(input: {
   return balance;
 }
 
+export async function addInventoryIngress(input: {
+  warehouseId: string;
+  reference?: string;
+  lines: Array<{
+    masterSku: string;
+    quantity: number;
+    averageUnitCost?: number | null;
+  }>;
+  updateCosts?: boolean;
+}) {
+  const store = await readLocalStore();
+  const warehouseId = input.warehouseId.trim();
+  const reference = input.reference?.trim() || undefined;
+  const warehouse = store.warehouses.find((entry) => entry.id === warehouseId);
+
+  if (!warehouse) {
+    throw new Error("Bodega invalida.");
+  }
+
+  const cleanedLines = input.lines
+    .map((line) => {
+      const masterSku = line.masterSku.trim();
+      const quantity = Number(line.quantity);
+      const hasCost =
+        line.averageUnitCost !== undefined && line.averageUnitCost !== null;
+      const averageUnitCost = hasCost ? Number(line.averageUnitCost) : null;
+      return { masterSku, quantity, hasCost, averageUnitCost };
+    })
+    .filter(
+      (line) =>
+        line.masterSku ||
+        line.quantity !== 0 ||
+        line.hasCost,
+    );
+
+  if (cleanedLines.length === 0) {
+    throw new Error("Agrega al menos una linea.");
+  }
+
+  if (cleanedLines.length > 100) {
+    throw new Error("Maximo 100 lineas por ingreso.");
+  }
+
+  const invalidLine = cleanedLines.find(
+    (line) =>
+      !line.masterSku ||
+      !Number.isFinite(line.quantity) ||
+      line.quantity <= 0 ||
+      (line.hasCost &&
+        (!Number.isFinite(line.averageUnitCost) ||
+          Number(line.averageUnitCost) < 0)),
+  );
+  if (invalidLine) {
+    throw new Error("Cada linea necesita SKU, cantidad mayor a 0 y costo valido.");
+  }
+
+  const activeProductsBySku = new Map(
+    store.products
+      .filter((product) => product.isActive !== false)
+      .map((product) => [normalizeSkuKey(product.masterSku), product]),
+  );
+
+  const missingLine = cleanedLines.find(
+    (line) => !activeProductsBySku.has(normalizeSkuKey(line.masterSku)),
+  );
+  if (missingLine) {
+    throw new Error(`SKU maestro no existe o esta archivado: ${missingLine.masterSku}.`);
+  }
+
+  const appliedLines: Array<{
+    masterSku: string;
+    quantity: number;
+    averageUnitCost: number | null;
+  }> = [];
+  let costUpdates = 0;
+  const now = Date.now();
+
+  cleanedLines.forEach((line, index) => {
+    const product = activeProductsBySku.get(normalizeSkuKey(line.masterSku));
+    if (!product) {
+      return;
+    }
+
+    const balance = getOrCreateBalance(store, product.masterSku, warehouseId);
+    balance.physicalQuantity += line.quantity;
+    if (input.updateCosts && line.hasCost && line.averageUnitCost !== null) {
+      product.averageUnitCost = Math.max(0, line.averageUnitCost);
+      costUpdates += 1;
+    }
+    syncProductTotalsFromBalances(store, product.masterSku);
+
+    store.inventoryMovements.push({
+      id: `mov_${now}_${index}_${Math.random().toString(36).slice(2, 8)}`,
+      date: new Date().toISOString(),
+      type: "adjustment",
+      masterSku: product.masterSku,
+      warehouseId,
+      quantity: line.quantity,
+      reference: "manual_ingress",
+      note: reference ? `Ingreso rapido | ${reference}` : "Ingreso rapido",
+    });
+
+    appliedLines.push({
+      masterSku: product.masterSku,
+      quantity: line.quantity,
+      averageUnitCost:
+        line.hasCost && line.averageUnitCost !== null ? line.averageUnitCost : null,
+    });
+  });
+
+  store.importedAt = new Date().toISOString();
+  await writeLocalStore(store);
+
+  return {
+    warehouseId,
+    reference,
+    appliedLines,
+    costUpdates,
+  };
+}
+
 export async function resetInventoryCount(input: {
   masterSku: string;
   warehouseId: string;

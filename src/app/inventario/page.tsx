@@ -8,6 +8,7 @@ import { AsyncForm } from "@/components/async-form";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { FullShipmentForm } from "@/components/full-shipment-form";
 import { InventoryClientSection } from "@/components/inventory-client-section";
+import { InventoryStockIngress } from "@/components/inventory-stock-ingress";
 import { ModalForm } from "@/components/modal-form";
 import { SkuConnectionsManager } from "@/components/sku-connections-manager";
 import { formatDateTimeMx } from "@/lib/format";
@@ -124,6 +125,31 @@ async function InventoryContent({ searchParams }: InventoryPageProps) {
             Se importaron {params.full_layers_imported} capas Full FIFO.
           </div>
         ) : null}
+
+        <section className="ct-ops-panel">
+          <div className="ct-ops-panel-header">
+            <div>
+              <p className="ct-ops-kicker">Carga manual sin Excel</p>
+              <h2 className="ct-ops-title mt-1">Ingreso rapido por SKU</h2>
+              <p className="ct-ops-copy">
+                Escribe el SKU maestro, confirma piezas y agrega varios renglones
+                sin salir de inventario.
+              </p>
+            </div>
+            <InventoryStockIngress
+              products={report.rows.map((row) => ({
+                masterSku: row.masterSku,
+                name: row.name,
+                averageUnitCost: row.averageUnitCost,
+              }))}
+              warehouses={report.warehouses.map((warehouse) => ({
+                id: warehouse.id,
+                name: warehouse.name,
+              }))}
+              firstWarehouseId={firstWarehouseId}
+            />
+          </div>
+        </section>
 
         <section className="ct-ops-kpi-grid">
           <PendingFilterCard

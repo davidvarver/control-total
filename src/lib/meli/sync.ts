@@ -7,6 +7,7 @@ import {
   recalculateMarketplaceOrders,
   replaceFullInventory,
   saveFullStockAudit,
+  saveMarketplaceListingImages,
   saveMarketplaceOrders,
   upsertMarketplaceAccount,
   type LocalFullStockSnapshotItem,
@@ -1423,6 +1424,54 @@ export async function auditMeliFullStock(params: {
     mappedUnits: snapshot.mappedUnits,
     unmappedItems: snapshot.unmappedItems,
     auditedAt: result.auditedAt,
+  };
+}
+
+export async function refreshMeliListingImages(params: {
+  accountId: string;
+  maxItems?: number;
+}) {
+  const account = await getFreshMarketplaceAccount(params.accountId);
+  const itemIds = await listAllSellerItemIds({
+    accessToken: account.accessToken,
+    sellerId: account.externalAccountId,
+    maxItems: params.maxItems ?? 1000,
+  });
+  const listingImagesByKey = new Map<string, LocalMarketplaceListingImage>();
+
+  for (const batch of chunk(itemIds, 20)) {
+    const items = await getMeliItems(account.accessToken, batch);
+
+    for (const item of items) {
+      if (item.code !== 200) {
+        continue;
+      }
+
+      for (const row of extractListingRows(item.body)) {
+        const listingImage: LocalMarketplaceListingImage = {
+          onlineSku: row.externalSku,
+          title: row.title,
+          listingId: row.listingId,
+          variationId: row.variationId,
+          imageUrl: row.imageUrl,
+        };
+        listingImagesByKey.set(buildListingImageKey(listingImage), listingImage);
+      }
+    }
+  }
+
+  const listingImages = [...listingImagesByKey.values()];
+  const saved = await saveMarketplaceListingImages({
+    accountId: account.id,
+    listingImages,
+  });
+
+  return {
+    accountId: account.id,
+    scannedItems: itemIds.length,
+    listingImages: listingImages.length,
+    updatedOnlineSkus: saved.updatedOnlineSkus,
+    refreshedAt: new Date().toISOString(),
   };
 }
 

@@ -15,6 +15,7 @@ import {
   buildMonthlyProfitHistoryFromSnapshots,
   type MonthlyProfitHistorySnapshotRow,
 } from "@/lib/server/monthly-snapshots";
+import { buildProfitFastSummary } from "@/lib/server/profit-fast-report";
 import { buildProfitReport } from "@/lib/server/reports";
 
 const money = new Intl.NumberFormat("es-MX", {
@@ -44,6 +45,7 @@ type ProfitPageProps = {
     compareA?: string;
     compareB?: string;
     compareC?: string;
+    detail?: string;
     history?: string;
     error?: string;
   }>;
@@ -82,70 +84,8 @@ async function ProfitContent({
     to: params.to,
     month: baseMonth,
   });
-  const report = await buildProfitReport({
-    includeProductSummary: false,
-    includeProductMonthlySummary: "fullBillingOnly",
-    orderDateFrom: selectedRange.from,
-    orderDateTo: selectedRange.to,
-    orderLimit: getProfitPageOrderLimit(),
-  });
   const selectedMonth = selectedRange.from.slice(0, 7);
   const selectedPeriodLabel = formatDateRangeLabel(selectedRange);
-  const selectedSettledOrders = report.settledOrders.filter(
-    (order) =>
-      !order.isCancelled && isWithinProfitDateRange(order.orderedAt, selectedRange),
-  );
-  const selectedMonthlySummary = buildProfitRangeSummary(
-    report,
-    selectedSettledOrders,
-    selectedRange,
-  );
-  const skuQuery = (params.skuQ ?? "").trim().toLowerCase();
-  const selectedPendingBillingOrders = report.pendingBillingOrders.filter(
-    (order) => isWithinProfitDateRange(order.orderedAt, selectedRange),
-  );
-  const selectedProductMonthlySummary = buildProductProfitRowsForRange({
-    report,
-    settledOrders: selectedSettledOrders,
-    range: selectedRange,
-  });
-  const filteredProductMonthlySummary = selectedProductMonthlySummary.filter(
-    (product) => {
-      const matchesQuery =
-        !skuQuery ||
-        product.masterSku.toLowerCase().includes(skuQuery) ||
-        product.title.toLowerCase().includes(skuQuery);
-      const matchesResult =
-        !params.skuResult ||
-        (params.skuResult === "loss" && product.finalNetProfit < 0) ||
-        (params.skuResult === "profit" && product.finalNetProfit >= 0) ||
-        (params.skuResult === "incomplete" && product.masterSku.startsWith("SIN_MAPEAR"));
-
-      return matchesQuery && matchesResult;
-    },
-  );
-  const selectedLossOrders = report.settledOrders
-    .filter(
-      (order) =>
-        !order.isCancelled &&
-        isWithinProfitDateRange(order.orderedAt, selectedRange) &&
-        order.netProfit < 0,
-    )
-    .sort((a, b) => a.netProfit - b.netProfit);
-  const comparedSkus = [
-    params.compareA,
-    params.compareB,
-    params.compareC,
-  ]
-    .map((value) => String(value ?? "").trim())
-    .filter(Boolean)
-    .filter((value, index, values) => values.indexOf(value) === index);
-  const skuComparison = buildSkuComparison(
-    comparedSkus,
-    report,
-    selectedRange,
-    selectedProductMonthlySummary,
-  );
   return (
     <div className="ct-ops-page">
 
@@ -230,40 +170,91 @@ async function ProfitContent({
           </div>
         </section>
 
-        <section className="ct-ops-panel">
-          <div className="ct-ops-panel-header">
-            <div>
-              <p className="ct-ops-kicker">Resultado del filtro</p>
-              <h2 className="ct-ops-title mt-1">Resumen financiero</h2>
-              <p className="ct-ops-copy">
-                Numeros del periodo elegido, separados entre utilidad final, pendientes y alertas.
-              </p>
-            </div>
-          </div>
+        <Suspense fallback={<ProfitSummarySkeleton />}>
+          <ProfitSummarySection
+            organizationId={organizationId}
+            selectedRange={selectedRange}
+          />
+        </Suspense>
+
+        {params.detail === "1" ? (
+          <Suspense fallback={<ProfitDetailsSkeleton />}>
+            <ProfitDetailsContent
+              organizationId={organizationId}
+              params={params}
+              selectedMonth={selectedMonth}
+              selectedRange={selectedRange}
+              selectedPeriodLabel={selectedPeriodLabel}
+            />
+          </Suspense>
+        ) : (
+          <ProfitDetailLoadPanel selectedRange={selectedRange} />
+        )}
+    </div>
+  );
+}
+
+async function ProfitSummarySection({
+  organizationId,
+  selectedRange,
+}: {
+  organizationId: string;
+  selectedRange: ProfitDateRange;
+}) {
+  let summary: Awaited<ReturnType<typeof buildProfitFastSummary>>;
+
+  try {
+    summary = await buildProfitFastSummary({
+      organizationId,
+      range: selectedRange,
+    });
+  } catch (error) {
+    console.error("[Profit Summary] Failed to load fast summary:", error);
+    summary = null;
+  }
+
+  return (
+    <section className="ct-ops-panel">
+      <div className="ct-ops-panel-header">
+        <div>
+          <p className="ct-ops-kicker">Resultado del filtro</p>
+          <h2 className="ct-ops-title mt-1">Resumen financiero</h2>
+          <p className="ct-ops-copy">
+            Numeros del periodo elegido, separados entre utilidad final,
+            pendientes y alertas.
+          </p>
+        </div>
+      </div>
+      {!summary ? (
+        <div className="ct-ops-empty border-t border-white/10 text-red-200">
+          No se pudo cargar el resumen de utilidad.
+        </div>
+      ) : (
+        <>
           <div className="ct-ops-kpi-grid ct-ops-panel-body">
             <SummaryMetric
               label="Ventas cerradas"
-              value={number.format(selectedMonthlySummary.orders)}
+              value={number.format(summary.orders)}
             />
             <SummaryMetric
               label="Utilidad final"
-              value={money.format(selectedMonthlySummary.finalNetProfit)}
-              tone={selectedMonthlySummary.finalNetProfit < 0 ? "red" : "green"}
+              value={money.format(summary.finalNetProfit)}
+              tone={summary.finalNetProfit < 0 ? "red" : "green"}
             />
             <SummaryMetric
               label="Margen final"
-              value={`${number.format(selectedMonthlySummary.finalMargin)}%`}
-              tone={selectedMonthlySummary.finalMargin < 0 ? "red" : "green"}
+              value={`${number.format(summary.finalMargin)}%`}
+              tone={summary.finalMargin < 0 ? "red" : "green"}
             />
             <SummaryMetric
               label="Ventas con perdida"
-              value={number.format(selectedLossOrders.length)}
-              tone={selectedLossOrders.length > 0 ? "red" : "neutral"}
+              value={number.format(summary.lossOrders)}
+              tone={summary.lossOrders > 0 ? "red" : "neutral"}
             />
             <SummaryMetric
               label="Dinero por confirmar"
-              value={number.format(selectedPendingBillingOrders.length)}
-              tone={selectedPendingBillingOrders.length > 0 ? "amber" : "neutral"}
+              value={number.format(summary.pendingBillingOrders)}
+              tone={summary.pendingBillingOrders > 0 ? "amber" : "neutral"}
             />
           </div>
           <details className="border-t border-white/10 px-4 py-3">
@@ -273,29 +264,104 @@ async function ProfitContent({
             <div className="ct-ops-kpi-grid mt-3 text-sm">
               <SummaryMetric
                 label="Recibido confirmado"
-                value={money.format(selectedMonthlySummary.estimatedReceived)}
+                value={money.format(summary.estimatedReceived)}
               />
               <SummaryMetric
                 label="Costo producto"
-                value={money.format(selectedMonthlySummary.productCost)}
+                value={money.format(summary.productCost)}
               />
               <SummaryMetric
                 label="Costos Full por venta"
-                value={money.format(selectedMonthlySummary.additionalCosts)}
+                value={money.format(summary.additionalCosts)}
               />
               <SummaryMetric
                 label="Cargos Full mensual"
-                value={money.format(selectedMonthlySummary.fullBillingCharges)}
-                tone={selectedMonthlySummary.fullBillingCharges > 0 ? "amber" : "neutral"}
+                value={money.format(summary.fullBillingCharges)}
+                tone={summary.fullBillingCharges > 0 ? "amber" : "neutral"}
               />
               <SummaryMetric
                 label="Gastos operativos"
-                value={money.format(selectedMonthlySummary.operatingExpenses)}
-                tone={selectedMonthlySummary.operatingExpenses > 0 ? "amber" : "neutral"}
+                value={money.format(summary.operatingExpenses)}
+                tone={summary.operatingExpenses > 0 ? "amber" : "neutral"}
               />
             </div>
           </details>
-        </section>
+        </>
+      )}
+    </section>
+  );
+}
+
+async function ProfitDetailsContent({
+  organizationId,
+  params,
+  selectedMonth,
+  selectedRange,
+  selectedPeriodLabel,
+}: {
+  organizationId: string;
+  params: Awaited<ProfitPageProps["searchParams"]>;
+  selectedMonth: string;
+  selectedRange: ProfitDateRange;
+  selectedPeriodLabel: string;
+}) {
+  const report = await buildProfitReport({
+    includeProductSummary: false,
+    includeProductMonthlySummary: "fullBillingOnly",
+    orderDateFrom: selectedRange.from,
+    orderDateTo: selectedRange.to,
+    orderLimit: getProfitPageOrderLimit(),
+  });
+  const selectedSettledOrders = report.settledOrders.filter(
+    (order) =>
+      !order.isCancelled && isWithinProfitDateRange(order.orderedAt, selectedRange),
+  );
+  const skuQuery = (params.skuQ ?? "").trim().toLowerCase();
+  const selectedPendingBillingOrders = report.pendingBillingOrders.filter((order) =>
+    isWithinProfitDateRange(order.orderedAt, selectedRange),
+  );
+  const selectedProductMonthlySummary = buildProductProfitRowsForRange({
+    report,
+    settledOrders: selectedSettledOrders,
+    range: selectedRange,
+  });
+  const filteredProductMonthlySummary = selectedProductMonthlySummary.filter(
+    (product) => {
+      const matchesQuery =
+        !skuQuery ||
+        product.masterSku.toLowerCase().includes(skuQuery) ||
+        product.title.toLowerCase().includes(skuQuery);
+      const matchesResult =
+        !params.skuResult ||
+        (params.skuResult === "loss" && product.finalNetProfit < 0) ||
+        (params.skuResult === "profit" && product.finalNetProfit >= 0) ||
+        (params.skuResult === "incomplete" &&
+          product.masterSku.startsWith("SIN_MAPEAR"));
+
+      return matchesQuery && matchesResult;
+    },
+  );
+  const selectedLossOrders = report.settledOrders
+    .filter(
+      (order) =>
+        !order.isCancelled &&
+        isWithinProfitDateRange(order.orderedAt, selectedRange) &&
+        order.netProfit < 0,
+    )
+    .sort((a, b) => a.netProfit - b.netProfit);
+  const comparedSkus = [params.compareA, params.compareB, params.compareC]
+    .map((value) => String(value ?? "").trim())
+    .filter(Boolean)
+    .filter((value, index, values) => values.indexOf(value) === index);
+  const skuComparison = buildSkuComparison(
+    comparedSkus,
+    report,
+    selectedRange,
+    selectedProductMonthlySummary,
+  );
+
+  return (
+    <>
 
         <LossOrdersSection
           orders={selectedLossOrders}
@@ -844,7 +910,7 @@ async function ProfitContent({
             </table>
           </div>
         </details>
-    </div>
+    </>
   );
 }
 
@@ -889,6 +955,130 @@ function ProfitPageSkeleton() {
         </div>
       </section>
     </div>
+  );
+}
+
+function ProfitDetailsSkeleton() {
+  return (
+    <>
+      <section className="ct-ops-panel">
+        <div className="ct-ops-panel-header">
+          <div>
+            <div className="h-5 w-36 animate-pulse rounded-full bg-white/[0.08]" />
+            <div className="mt-3 h-8 w-60 animate-pulse rounded-2xl bg-white/[0.08]" />
+            <div className="mt-3 h-4 w-96 max-w-full animate-pulse rounded-full bg-white/[0.08]" />
+          </div>
+        </div>
+        <div className="space-y-3 p-4">
+          {[0, 1, 2].map((item) => (
+            <div
+              key={item}
+              className="h-14 animate-pulse rounded-2xl bg-white/[0.08]"
+            />
+          ))}
+        </div>
+      </section>
+      <section className="ct-ops-panel">
+        <div className="ct-ops-panel-header">
+          <div className="h-8 w-56 animate-pulse rounded-2xl bg-white/[0.08]" />
+        </div>
+        <div className="ct-ops-kpi-grid p-4">
+          {[0, 1, 2, 3].map((item) => (
+            <div
+              key={item}
+              className="h-20 animate-pulse rounded-2xl bg-white/[0.08]"
+            />
+          ))}
+        </div>
+      </section>
+    </>
+  );
+}
+
+function ProfitSummarySkeleton() {
+  return (
+    <section className="ct-ops-panel">
+      <div className="ct-ops-panel-header">
+        <div>
+          <div className="h-5 w-36 animate-pulse rounded-full bg-white/[0.08]" />
+          <div className="mt-3 h-8 w-60 animate-pulse rounded-2xl bg-white/[0.08]" />
+          <div className="mt-3 h-4 w-96 max-w-full animate-pulse rounded-full bg-white/[0.08]" />
+        </div>
+      </div>
+      <div className="ct-ops-kpi-grid ct-ops-panel-body">
+        {[0, 1, 2, 3, 4].map((item) => (
+          <div
+            key={item}
+            className="h-24 animate-pulse rounded-2xl bg-white/[0.08]"
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function SummaryMetric({
+  label,
+  value,
+  tone = "neutral",
+}: {
+  label: string;
+  value: string;
+  tone?: "neutral" | "green" | "red" | "amber";
+}) {
+  const valueTone = {
+    neutral: "",
+    green: "is-ok",
+    red: "is-danger",
+    amber: "is-warn",
+  }[tone];
+
+  return (
+    <div
+      className={`ct-ops-kpi ${
+        tone === "green"
+          ? "is-ok"
+          : tone === "red"
+            ? "is-danger"
+            : tone === "amber"
+              ? "is-warn"
+              : ""
+      }`}
+    >
+      <p className="ct-ops-kpi-label">{label}</p>
+      <p className={`ct-ops-kpi-value ${valueTone}`}>{value}</p>
+    </div>
+  );
+}
+
+function ProfitDetailLoadPanel({
+  selectedRange,
+}: {
+  selectedRange: ProfitDateRange;
+}) {
+  const href = `/utilidad?from=${encodeURIComponent(
+    selectedRange.from,
+  )}&to=${encodeURIComponent(selectedRange.to)}&detail=1`;
+
+  return (
+    <section className="ct-ops-panel">
+      <div className="ct-ops-panel-header">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="ct-ops-kicker">Detalle bajo demanda</p>
+            <h2 className="ct-ops-title mt-1">Ventas, SKUs y gastos</h2>
+            <p className="ct-ops-copy">
+              El resumen carga primero para que la pagina no se congele. Abre el
+              detalle cuando necesites revisar ventas con perdida, comparador de
+              SKUs, gastos capturados y pendientes Meli.
+            </p>
+          </div>
+          <Link href={href} prefetch={false} className="ct-button ct-button-primary">
+            Cargar detalle completo
+          </Link>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -1014,34 +1204,7 @@ function MonthlyProfitHistoryTable({
   );
 }
 
-function SummaryMetric({
-  label,
-  value,
-  tone = "neutral",
-}: {
-  label: string;
-  value: string;
-  tone?: "neutral" | "green" | "red" | "amber";
-}) {
-  const valueTone = {
-    neutral: "",
-    green: "is-ok",
-    red: "is-danger",
-    amber: "is-warn",
-  }[tone];
-
-  return (
-    <div className={`ct-ops-kpi ${tone === "green" ? "is-ok" : tone === "red" ? "is-danger" : tone === "amber" ? "is-warn" : ""}`}>
-      <p className="ct-ops-kpi-label">
-        {label}
-      </p>
-      <p className={`ct-ops-kpi-value ${valueTone}`}>{value}</p>
-    </div>
-  );
-}
-
 type ProfitReport = Awaited<ReturnType<typeof buildProfitReport>>;
-type MonthlySummaryRow = ProfitReport["monthlySummary"][number];
 type ProductMonthlySummaryRow = ProfitReport["productMonthlySummary"][number];
 type SettledOrderRow = ProfitReport["settledOrders"][number];
 type ProfitDateRange = { from: string; to: string };
@@ -1525,53 +1688,6 @@ function toBusinessDate(value: string) {
   return year && month && day ? `${year}-${month}-${day}` : null;
 }
 
-function buildProfitRangeSummary(
-  report: ProfitReport,
-  settledOrders: SettledOrderRow[],
-  range: ProfitDateRange,
-): MonthlySummaryRow {
-  const grossAmount = settledOrders.reduce((sum, order) => sum + order.grossAmount, 0);
-  const estimatedReceived = settledOrders.reduce(
-    (sum, order) => sum + order.estimatedReceived,
-    0,
-  );
-  const productCost = settledOrders.reduce((sum, order) => sum + order.productCost, 0);
-  const additionalCosts = settledOrders.reduce(
-    (sum, order) => sum + order.additionalCosts,
-    0,
-  );
-  const contributionProfit = settledOrders.reduce(
-    (sum, order) => sum + order.netProfit,
-    0,
-  );
-  const fullBillingCharges = calculateProratedMonthlyAmount(
-    report.monthlySummary,
-    range,
-    "fullBillingCharges",
-  );
-  const operatingExpenses = calculateProratedMonthlyAmount(
-    report.monthlySummary,
-    range,
-    "operatingExpenses",
-  );
-  const finalNetProfit = contributionProfit - fullBillingCharges - operatingExpenses;
-
-  return {
-    month: range.from.slice(0, 7),
-    orders: settledOrders.length,
-    grossAmount: roundMoney(grossAmount),
-    estimatedReceived: roundMoney(estimatedReceived),
-    productCost: roundMoney(productCost),
-    additionalCosts: roundMoney(additionalCosts),
-    fullBillingCharges: roundMoney(fullBillingCharges),
-    contributionProfit: roundMoney(contributionProfit),
-    operatingExpenses: roundMoney(operatingExpenses),
-    finalNetProfit: roundMoney(finalNetProfit),
-    contributionMargin: grossAmount > 0 ? (contributionProfit / grossAmount) * 100 : 0,
-    finalMargin: grossAmount > 0 ? (finalNetProfit / grossAmount) * 100 : 0,
-  };
-}
-
 function buildProductProfitRowsForRange(input: {
   report: ProfitReport;
   settledOrders: SettledOrderRow[];
@@ -1722,17 +1838,6 @@ function formatReportMonthLabel(month: string) {
     year: "numeric",
     timeZone: "UTC",
   }).format(date);
-}
-
-function calculateProratedMonthlyAmount(
-  rows: MonthlySummaryRow[],
-  range: ProfitDateRange,
-  field: "fullBillingCharges" | "operatingExpenses",
-) {
-  return rows.reduce((sum, row) => {
-    const ratio = getMonthOverlapRatio(row.month, range);
-    return sum + row[field] * ratio;
-  }, 0);
 }
 
 function monthOverlapsRange(month: string, range: ProfitDateRange) {

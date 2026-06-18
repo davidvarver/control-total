@@ -1737,6 +1737,24 @@ export async function replaceFullInventory(input: {
   return store.fullStockSync;
 }
 
+export async function saveMarketplaceListingImages(input: {
+  accountId: string;
+  listingImages: LocalMarketplaceListingImage[];
+}) {
+  const store = await readLocalStore();
+  const updatedOnlineSkus = applyMarketplaceListingImages(
+    store,
+    input.accountId,
+    input.listingImages,
+  );
+
+  if (updatedOnlineSkus > 0) {
+    await writeLocalStore(store);
+  }
+
+  return { updatedOnlineSkus };
+}
+
 export async function saveFullStockAudit(input: {
   accountId: string;
   totalFulfillmentUnits: number;
@@ -1770,7 +1788,7 @@ function applyMarketplaceListingImages(
   listings: LocalMarketplaceListingImage[],
 ) {
   if (listings.length === 0 || store.onlineSkus.length === 0) {
-    return;
+    return 0;
   }
 
   const bySku = new Map<string, LocalMarketplaceListingImage>();
@@ -1790,6 +1808,7 @@ function applyMarketplaceListingImages(
     }
   }
 
+  let updated = 0;
   store.onlineSkus = store.onlineSkus.map((sku) => {
     const listingKey = sku.externalListingId?.trim();
     const listing =
@@ -1816,7 +1835,7 @@ function applyMarketplaceListingImages(
     const shouldImproveTitle =
       title && (!sku.title || normalizeSkuKey(sku.title) === normalizeSkuKey(sku.onlineSku));
 
-    return {
+    const nextSku = {
       ...sku,
       title: shouldImproveTitle ? title : sku.title,
       marketplaceAccount:
@@ -1826,7 +1845,20 @@ function applyMarketplaceListingImages(
       externalListingId: sku.externalListingId ?? listing.listingId ?? null,
       imageUrl: imageUrl ?? sku.imageUrl ?? null,
     };
+
+    if (
+      nextSku.title !== sku.title ||
+      nextSku.marketplaceAccount !== sku.marketplaceAccount ||
+      nextSku.externalListingId !== sku.externalListingId ||
+      nextSku.imageUrl !== sku.imageUrl
+    ) {
+      updated += 1;
+    }
+
+    return nextSku;
   });
+
+  return updated;
 }
 
 function normalizeStoredImageUrl(value: unknown) {

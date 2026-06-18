@@ -147,6 +147,8 @@ type MeliPageProps = {
     full_unmapped?: string;
     full_audited?: string;
     full_audit_unmapped?: string;
+    listing_images_scanned?: string;
+    listing_images_updated?: string;
     full_billing_synced?: string;
     full_billing_total?: string;
     full_billing_period?: string;
@@ -566,6 +568,14 @@ export default async function MeliPage({ searchParams }: MeliPageProps) {
               : ""}
           </div>
         ) : null}
+        {params.listing_images_scanned ? (
+          <div className="ct-ops-alert is-ok text-sm font-medium">
+            Fotos de publicaciones actualizadas: {params.listing_images_scanned} publicaciones revisadas.
+            {params.listing_images_updated
+              ? ` ${params.listing_images_updated} SKUs online mejorados.`
+              : ""}
+          </div>
+        ) : null}
         {params.full_billing_synced ? (
           <div className="ct-ops-alert is-ok text-sm font-medium">
             Cargos Full actualizados: {params.full_billing_synced} cargos del periodo{" "}
@@ -873,6 +883,20 @@ export default async function MeliPage({ searchParams }: MeliPageProps) {
                 <div className="flex flex-wrap items-center gap-2">
                   {account.status === "connected" ? (
                     <>
+                      <AsyncForm
+                        action="/api/integrations/meli/refresh-listing-images"
+                        successMessage="Fotos actualizadas"
+                      >
+                        <input type="hidden" name="accountId" value={account.id} />
+                        <input type="hidden" name="back" value="/meli#cuentas" />
+                        <button
+                          type="submit"
+                          className="inline-flex items-center gap-1 rounded-md border border-zinc-200 px-3 py-2 text-xs font-black text-zinc-700 hover:bg-zinc-50"
+                        >
+                          <Store size={14} />
+                          Actualizar fotos
+                        </button>
+                      </AsyncForm>
                       <AsyncForm
                         action="/api/integrations/meli/audit-full"
                         successMessage="Auditoria Full actualizada"

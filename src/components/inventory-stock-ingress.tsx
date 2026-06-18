@@ -463,17 +463,25 @@ function normalizeRows(rows: IngressRow[]) {
 }
 
 function createInitialRows() {
-  return [createEmptyRow(), createEmptyRow(), createEmptyRow()];
+  return [
+    createEmptyRow("ingress_initial_0"),
+    createEmptyRow("ingress_initial_1"),
+    createEmptyRow("ingress_initial_2"),
+  ];
 }
 
-function createEmptyRow(): IngressRow {
+function createEmptyRow(id = createDynamicRowId()): IngressRow {
   return {
-    id: `ingress_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    id,
     masterSku: "",
     name: "",
     quantity: "",
     averageUnitCost: "",
   };
+}
+
+function createDynamicRowId() {
+  return `ingress_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function rowHasEntry(row: IngressRow) {

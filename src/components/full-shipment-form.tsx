@@ -15,20 +15,25 @@ type FullShipmentFormProps = {
   today: string;
 };
 
-function createRow(): FullShipmentRow {
+function createRow(id = createDynamicRowId()): FullShipmentRow {
   return {
-    id:
-      typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random()}`,
+    id,
     masterSku: "",
     quantity: "",
     volume: "",
   };
 }
 
+function createDynamicRowId() {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `full_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
 export function FullShipmentForm({ today }: FullShipmentFormProps) {
-  const [rows, setRows] = useState<FullShipmentRow[]>([createRow()]);
+  const [rows, setRows] = useState<FullShipmentRow[]>([
+    createRow("full_initial_0"),
+  ]);
   const shipmentRows = useMemo(
     () =>
       rows
@@ -221,4 +226,3 @@ export function FullShipmentForm({ today }: FullShipmentFormProps) {
     </AsyncForm>
   );
 }
-

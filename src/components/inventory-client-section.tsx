@@ -15,6 +15,8 @@ const money = new Intl.NumberFormat("es-MX", {
   currency: "MXN",
   maximumFractionDigits: 2,
 });
+const INITIAL_VISIBLE_ROWS = 50;
+const LOAD_MORE_ROWS = 50;
 
 type SortKey = "sku" | "product" | "stock" | "online" | "cost" | "value";
 type SortDir = "asc" | "desc";
@@ -94,6 +96,7 @@ export function InventoryClientSection({
   );
   const [sortKey, setSortKey] = useState<SortKey>(initialSort);
   const [sortDir, setSortDir] = useState<SortDir>(initialDir);
+  const [visibleLimit, setVisibleLimit] = useState(INITIAL_VISIBLE_ROWS);
 
   const showingArchivedSkus = stock === "archived";
   const filteredRows = useMemo(() => {
@@ -189,8 +192,20 @@ export function InventoryClientSection({
       })
       .sort((left, right) => compareInventoryRows(left, right, sortKey, sortDir));
   }, [archivedProducts, query, showingArchivedSkus, sortDir, sortKey, warehouseId]);
+  const visibleRows = filteredRows.slice(0, visibleLimit);
+  const hiddenRows = Math.max(0, filteredRows.length - visibleRows.length);
+  const visibleArchivedProducts = filteredArchivedProducts.slice(0, visibleLimit);
+  const hiddenArchivedProducts = Math.max(
+    0,
+    filteredArchivedProducts.length - visibleArchivedProducts.length,
+  );
+
+  function resetVisibleLimit() {
+    setVisibleLimit(INITIAL_VISIBLE_ROWS);
+  }
 
   function setSort(nextSort: SortKey) {
+    resetVisibleLimit();
     if (nextSort === sortKey) {
       setSortDir(sortDir === "asc" ? "desc" : "asc");
       return;
@@ -218,13 +233,19 @@ export function InventoryClientSection({
           >
             <input
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                resetVisibleLimit();
+              }}
               placeholder="Buscar SKU o producto"
               className="h-10 rounded-md border border-zinc-300 px-3 text-sm outline-none focus:border-zinc-950"
             />
             <select
               value={warehouseId}
-              onChange={(event) => setWarehouseId(event.target.value)}
+              onChange={(event) => {
+                setWarehouseId(event.target.value);
+                resetVisibleLimit();
+              }}
               className="h-10 rounded-md border border-zinc-300 px-3 text-sm outline-none focus:border-zinc-950"
             >
               <option value="">Todas las bodegas</option>
@@ -236,7 +257,10 @@ export function InventoryClientSection({
             </select>
             <select
               value={stock}
-              onChange={(event) => setStock(event.target.value as StockFilter)}
+              onChange={(event) => {
+                setStock(event.target.value as StockFilter);
+                resetVisibleLimit();
+              }}
               className="h-10 rounded-md border border-zinc-300 px-3 text-sm outline-none focus:border-zinc-950"
             >
               <option value="">Todo stock</option>
@@ -252,6 +276,7 @@ export function InventoryClientSection({
                 setQuery("");
                 setWarehouseId("");
                 setStock("");
+                resetVisibleLimit();
               }}
               className="h-10 rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white hover:bg-zinc-800"
             >
@@ -260,7 +285,7 @@ export function InventoryClientSection({
           </form>
         </div>
         <div className="divide-y divide-zinc-100 md:hidden">
-          {filteredRows.map((row) => (
+          {visibleRows.map((row) => (
             <div key={row.masterSku} className="px-4 py-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex min-w-0 items-start gap-3">
@@ -364,7 +389,7 @@ export function InventoryClientSection({
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100">
-              {filteredRows.map((row) => (
+              {visibleRows.map((row) => (
                 <InventoryEditableRow
                   key={row.masterSku}
                   row={row}
@@ -386,6 +411,21 @@ export function InventoryClientSection({
             </tbody>
           </table>
         </div>
+        {hiddenRows > 0 ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 px-4 py-3">
+            <p className="text-sm font-semibold text-zinc-500">
+              Mostrando {number.format(visibleRows.length)} de{" "}
+              {number.format(filteredRows.length)} SKUs.
+            </p>
+            <button
+              type="button"
+              onClick={() => setVisibleLimit((limit) => limit + LOAD_MORE_ROWS)}
+              className="ct-button ct-button-secondary"
+            >
+              Mostrar {number.format(Math.min(LOAD_MORE_ROWS, hiddenRows))} mas
+            </button>
+          </div>
+        ) : null}
       </section>
 
       {showingArchivedSkus ? (
@@ -403,7 +443,7 @@ export function InventoryClientSection({
                 SKU maestro archivado
               </div>
             ) : null}
-            {filteredArchivedProducts.map((item) => (
+            {visibleArchivedProducts.map((item) => (
               <div
                 key={item.masterSku}
                 className="grid gap-3 px-4 py-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
@@ -423,6 +463,21 @@ export function InventoryClientSection({
                 <RestoreArchivedProductButton masterSku={item.masterSku} />
               </div>
             ))}
+            {hiddenArchivedProducts > 0 ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                <p className="text-sm font-semibold text-zinc-500">
+                  Mostrando {number.format(visibleArchivedProducts.length)} de{" "}
+                  {number.format(filteredArchivedProducts.length)} archivados.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setVisibleLimit((limit) => limit + LOAD_MORE_ROWS)}
+                  className="ct-button ct-button-secondary"
+                >
+                  Mostrar {number.format(Math.min(LOAD_MORE_ROWS, hiddenArchivedProducts))} mas
+                </button>
+              </div>
+            ) : null}
             {archivedUnmappedSkus.length > 0 ? (
               <div className="bg-zinc-50 px-4 py-2 text-xs font-black uppercase tracking-normal text-zinc-500">
                 SKU online archivado de pendientes

@@ -58,6 +58,16 @@ const dateFormatter = new Intl.DateTimeFormat("es-MX", {
   timeStyle: "short",
 });
 
+function createLine(id = createDynamicLineId()): LineState {
+  return { id, masterSku: "", skuQuery: "", quantity: "1", unitPrice: "" };
+}
+
+function createDynamicLineId() {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `manual_sale_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
 export function ManualSaleForm({
   defaultDate,
   products,
@@ -70,9 +80,7 @@ export function ManualSaleForm({
   const [customerEmail, setCustomerEmail] = useState("");
   const [customerNote, setCustomerNote] = useState("");
   const [activeLineId, setActiveLineId] = useState<string | null>(null);
-  const [lines, setLines] = useState<LineState[]>([
-    { id: crypto.randomUUID(), masterSku: "", skuQuery: "", quantity: "1", unitPrice: "" },
-  ]);
+  const [lines, setLines] = useState<LineState[]>([createLine("manual_sale_initial_0")]);
 
   const selectedCustomer = customers.find((entry) => entry.key === selectedCustomerKey);
   const productBySku = useMemo(
@@ -147,10 +155,7 @@ export function ManualSaleForm({
   }
 
   function addLine() {
-    setLines((current) => [
-      ...current,
-      { id: crypto.randomUUID(), masterSku: "", skuQuery: "", quantity: "1", unitPrice: "" },
-    ]);
+    setLines((current) => [...current, createLine()]);
   }
 
   function removeLine(id: string) {
@@ -333,7 +338,7 @@ export function ManualSaleForm({
                         setLines((current) => [
                           ...current,
                           {
-                            id: crypto.randomUUID(),
+                            id: createDynamicLineId(),
                             masterSku: item.masterSku,
                             skuQuery: `${item.masterSku} - ${item.title}`,
                             quantity: String(item.quantity),

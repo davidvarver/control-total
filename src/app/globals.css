@@ -4422,6 +4422,7 @@ form button.ct-button,
 .ct-dark-app .ct-kpi {
   min-height: 150px;
   padding: 24px !important;
+  min-width: 0;
 }
 
 .ct-ops-kpi-label,
@@ -4435,6 +4436,10 @@ form button.ct-button,
 .ct-kpi-value {
   color: var(--ct-text) !important;
   text-shadow: none !important;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
+  line-height: 1;
 }
 
 .ct-ops-panel-header {

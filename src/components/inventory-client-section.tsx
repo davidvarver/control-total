@@ -15,8 +15,8 @@ const money = new Intl.NumberFormat("es-MX", {
   currency: "MXN",
   maximumFractionDigits: 2,
 });
-const INITIAL_VISIBLE_ROWS = 50;
-const LOAD_MORE_ROWS = 50;
+const INITIAL_VISIBLE_ROWS = 25;
+const LOAD_MORE_ROWS = 25;
 
 type SortKey = "sku" | "product" | "stock" | "online" | "cost" | "value";
 type SortDir = "asc" | "desc";
@@ -223,8 +223,11 @@ export function InventoryClientSection({
             <div>
               <h2 className="ct-page-card-title">Inventario completo</h2>
               <p className="ct-page-card-description">
-                Si un SKU solo existe por Full o por equivalencias, tambien aparece aqui.
+                Mostrando primero los SKUs operables. Busca, filtra o carga mas sin saturar la pantalla.
               </p>
+            </div>
+            <div className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-2 text-xs font-black text-slate-300">
+              {number.format(filteredRows.length)} SKUs encontrados
             </div>
           </div>
           <form

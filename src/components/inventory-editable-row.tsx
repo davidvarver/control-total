@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { Archive, Edit2, Eye, Trash2, X } from "lucide-react";
+import { Archive, Edit2, Eye, MoreHorizontal, Trash2, X } from "lucide-react";
 import { ProductThumbnail } from "@/components/product-thumbnail";
 
 const number = new Intl.NumberFormat("es-MX");
@@ -342,18 +342,6 @@ export function InventoryEditableRow({
             <Eye size={14} />
             Detalle
           </Link>
-          <Link
-            href={`/ventas?q=${encodeURIComponent(row.masterSku)}`}
-            className="inline-flex h-8 items-center rounded-md border border-zinc-300 px-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-          >
-            Ventas
-          </Link>
-          <Link
-            href={`/utilidad?q=${encodeURIComponent(row.masterSku)}`}
-            className="inline-flex h-8 items-center rounded-md border border-zinc-300 px-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-          >
-            Utilidad
-          </Link>
           {isEditing ? (
             <>
               <button
@@ -389,15 +377,35 @@ export function InventoryEditableRow({
                 <Edit2 size={14} />
                 Editar
               </button>
-              <button
-                type="button"
-                onClick={archiveOrDelete}
-                disabled={isPending}
-                className="inline-flex h-8 items-center gap-1 rounded-md border border-amber-200 px-2 text-xs font-semibold text-amber-800 hover:bg-amber-50 disabled:opacity-60"
-              >
-                {hasHistoricalReferences ? <Archive size={14} /> : <Trash2 size={14} />}
-                {hasHistoricalReferences ? "Archivar" : "Eliminar"}
-              </button>
+              <details className="group relative">
+                <summary className="inline-flex h-8 cursor-pointer list-none items-center gap-1 rounded-md border border-zinc-300 px-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50">
+                  <MoreHorizontal size={14} />
+                  Mas
+                </summary>
+                <div className="absolute right-0 z-20 mt-2 grid min-w-36 gap-1 rounded-lg border border-white/10 bg-[#101722]/95 p-2 shadow-lg ring-1 ring-white/10 backdrop-blur-xl">
+                  <Link
+                    href={`/ventas?q=${encodeURIComponent(row.masterSku)}`}
+                    className="rounded-md px-3 py-2 text-xs font-black text-slate-200 hover:bg-white/10"
+                  >
+                    Ver ventas
+                  </Link>
+                  <Link
+                    href={`/utilidad?skuQ=${encodeURIComponent(row.masterSku)}#utilidad-por-sku`}
+                    className="rounded-md px-3 py-2 text-xs font-black text-slate-200 hover:bg-white/10"
+                  >
+                    Ver utilidad
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={archiveOrDelete}
+                    disabled={isPending}
+                    className="flex h-8 items-center gap-2 rounded-md px-3 text-left text-xs font-black text-amber-200 hover:bg-amber-300/10 disabled:opacity-60"
+                  >
+                    {hasHistoricalReferences ? <Archive size={14} /> : <Trash2 size={14} />}
+                    {hasHistoricalReferences ? "Archivar" : "Eliminar"}
+                  </button>
+                </div>
+              </details>
             </>
           )}
         </div>

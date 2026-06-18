@@ -57,6 +57,7 @@ export default async function Home({ searchParams }: HomeProps) {
       eyebrow="Operacion"
       organization={user.organizationName}
       userEmail={user.email}
+      chrome="compact"
       actions={
         <>
           {canViewHealth ? (
